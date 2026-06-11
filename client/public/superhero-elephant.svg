@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="body-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#1d4ed8" />
+    </linearGradient>
+    <linearGradient id="cape-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ef4444" />
+      <stop offset="100%" stop-color="#ea580c" />
+    </linearGradient>
+    <linearGradient id="star-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24" />
+      <stop offset="100%" stop-color="#f59e0b" />
+    </linearGradient>
+    <filter id="glow" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <circle cx="100" cy="100" r="85" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="10 5" opacity="0.4" />
+
+  <!-- The Superhero Elephant -->
+  <g transform="translate(45, 30)">
+    <!-- Red Cape (behind body) -->
+    <path d="M 15 70 C -10 110 -15 130 5 135 C 20 135 40 100 50 80 Z" fill="url(#cape-grad)" />
+    <path d="M 95 70 C 120 110 125 130 105 135 C 90 135 70 100 60 80 Z" fill="url(#cape-grad)" />
+
+    <!-- Ears -->
+    <path d="M 25 50 C -10 25 5 -5 30 20 Z" fill="url(#body-grad)" opacity="0.8" />
+    <path d="M 85 50 C 120 25 105 -5 80 20 Z" fill="url(#body-grad)" opacity="0.8" />
+
+    <!-- Head & Body -->
+    <circle cx="55" cy="50" r="32" fill="url(#body-grad)" />
+    <path d="M 30 75 Q 30 115 55 115 Q 80 115 80 75 Z" fill="url(#body-grad)" />
+
+    <!-- Mask (Hero mask) -->
+    <path d="M 25 45 Q 55 52 85 45 Q 75 35 55 35 Q 35 35 25 45 Z" fill="url(#cape-grad)" />
+    <!-- Eyes inside mask -->
+    <circle cx="43" cy="43" r="5" fill="#fff" />
+    <circle cx="67" cy="43" r="5" fill="#fff" />
+    <circle cx="43" cy="43" r="2" fill="#1e293b" />
+    <circle cx="67" cy="43" r="2" fill="#1e293b" />
+
+    <!-- Trunk -->
+    <path d="M 55 60 Q 55 80 65 80 Q 72 80 72 75" fill="none" stroke="url(#body-grad)" stroke-width="8" stroke-linecap="round" />
+
+    <!-- Chest Emblem (Golden Shield with 'R') -->
+    <g transform="translate(43, 85)" filter="url(#glow)">
+      <polygon points="12,0 24,6 20,20 12,26 4,20 0,6" fill="url(#star-grad)" />
+      <text x="12" y="17" fill="#fff" font-size="12" font-weight="900" text-anchor="middle" font-family="sans-serif">R</text>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="body-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#1d4ed8" />
+    </linearGradient>
+    <linearGradient id="chart-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#ec4899" />
+    </linearGradient>
+  </defs>
+
+  <circle cx="100" cy="100" r="85" fill="none" stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="12 4" opacity="0.4" />
+
+  <!-- Analytics Line Graph background -->
+  <path d="M 30 140 L 65 110 L 100 125 L 135 80 L 170 95" fill="none" stroke="url(#chart-grad)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity="0.7" />
+  <circle cx="65" cy="110" r="4" fill="#38bdf8" />
+  <circle cx="100" cy="125" r="4" fill="#ec4899" />
+  <circle cx="135" cy="80" r="4" fill="#ec4899" />
+
+  <!-- Elephant -->
+  <g transform="translate(45, 40)">
+    <!-- Ears -->
+    <path d="M 25 50 C -10 25 5 -5 30 20 Z" fill="url(#body-grad)" opacity="0.8" />
+    <path d="M 85 50 C 120 25 105 -5 80 20 Z" fill="url(#body-grad)" opacity="0.8" />
+    
+    <!-- Head -->
+    <circle cx="55" cy="50" r="32" fill="url(#body-grad)" />
+    
+    <!-- Eyes -->
+    <circle cx="45" cy="45" r="4.5" fill="#fff" />
+    <circle cx="65" cy="45" r="4.5" fill="#fff" />
+    <circle cx="45" cy="45" r="2" fill="#1e293b" />
+    <circle cx="65" cy="45" r="2" fill="#1e293b" />
+    
+    <!-- Trunk (pointing at chart) -->
+    <path d="M 55 60 Q 65 75 80 70" fill="none" stroke="url(#body-grad)" stroke-width="8" stroke-linecap="round" />
+  </g>
+</svg>

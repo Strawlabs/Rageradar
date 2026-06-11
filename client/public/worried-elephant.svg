@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="body-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#1d4ed8" />
+    </linearGradient>
+    <linearGradient id="accent-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ef4444" />
+      <stop offset="100%" stop-color="#f97316" />
+    </linearGradient>
+    <filter id="glow" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Glowing background target rings -->
+  <circle cx="100" cy="100" r="80" fill="none" stroke="#3b82f6" stroke-width="1" stroke-dasharray="5 5" opacity="0.3" />
+  <circle cx="100" cy="100" r="90" fill="none" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="3 6" opacity="0.2" />
+
+  <!-- The Elephant -->
+  <g transform="translate(40, 40)">
+    <!-- Ears -->
+    <path d="M 25 60 C -15 30 0 -10 30 20 Z" fill="url(#body-grad)" opacity="0.8" />
+    <path d="M 95 60 C 135 30 120 -10 90 20 Z" fill="url(#body-grad)" opacity="0.8" />
+    <!-- Inner Ears -->
+    <path d="M 22 55 C -5 32 8 5 27 25 Z" fill="#93c5fd" opacity="0.6" />
+    <path d="M 98 55 C 125 32 112 5 93 25 Z" fill="#93c5fd" opacity="0.6" />
+
+    <!-- Body / Head -->
+    <ellipse cx="60" cy="65" rx="45" ry="40" fill="url(#body-grad)" />
+
+    <!-- Worried Eyebrows -->
+    <path d="M 38 42 Q 48 35 52 45" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" />
+    <path d="M 82 42 Q 72 35 68 45" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" />
+
+    <!-- Eyes (Worried expression, slightly tilted) -->
+    <ellipse cx="45" cy="52" rx="6" ry="8" fill="#fff" />
+    <ellipse cx="75" cy="52" rx="6" ry="8" fill="#fff" />
+    <!-- Pupils -->
+    <circle cx="43" cy="52" r="3" fill="#1e293b" />
+    <circle cx="73" cy="52" r="3" fill="#1e293b" />
+
+    <!-- Cheeks (Blushing) -->
+    <ellipse cx="38" cy="65" rx="5" ry="3" fill="#ef4444" opacity="0.6" />
+    <ellipse cx="82" cy="65" rx="5" ry="3" fill="#ef4444" opacity="0.6" />
+
+    <!-- Trunk (Curled up worriedly) -->
+    <path d="M 60 75 Q 60 100 48 98 Q 42 96 46 90 Q 50 86 56 90" fill="none" stroke="url(#body-grad)" stroke-width="12" stroke-linecap="round" />
+    
+    <!-- Sweat drop (Indicator of worry) -->
+    <path d="M 100 35 C 100 35 95 45 95 48 C 95 51 97 53 100 53 C 103 53 105 51 105 48 C 105 45 100 35 100 35 Z" fill="#38bdf8" filter="url(#glow)" />
+  </g>
+</svg>

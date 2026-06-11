@@ -1,0 +1,1880 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ULTIMATE ORANGE TAP HIGHLIGHT KILLER - MUST BE FIRST */
+html, body, *, *::before, *::after {
+  -webkit-tap-highlight-color: rgba(0,0,0,0) !important;
+  -webkit-tap-highlight-color: transparent !important;
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: none !important;
+  -khtml-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  user-select: none !important;
+  outline: none !important;
+}
+
+/* Target all possible clickable elements */
+a, button, [role="button"], [tabindex], .clickable, nav *, sidebar *, [data-testid] {
+  -webkit-tap-highlight-color: rgba(0,0,0,0) !important;
+  -webkit-tap-highlight-color: transparent !important;
+  -webkit-touch-callout: none !important;
+  outline: none !important;
+}
+
+/* Allow text selection for content */
+input, textarea, [contenteditable], p, span, div[role="textbox"] {
+  -webkit-user-select: text !important;
+  -khtml-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+  user-select: text !important;
+}
+
+/* FORCE BLUE FOCUS RINGS - Cache Bust v2.0 */
+
+/* NUCLEAR ORANGE ELIMINATION - Override ALL primary colors globally */
+:root {
+  --primary: 215 25% 27% !important;
+  --primary-foreground: 210 40% 98% !important;
+}
+
+.dark {
+  --primary: 215 25% 27% !important;
+  --primary-foreground: 210 40% 98% !important;
+}
+
+/* FORCE REMOVE ORANGE HIGHLIGHTER - Override any primary color usage in navigation */
+.sidebar-link-active {
+  background-color: rgb(241 245 249) !important;
+  color: rgb(15 23 42) !important;
+  border-left: 4px solid rgb(249 115 22) !important;
+}
+
+.dark .sidebar-link-active {
+  background-color: rgb(51 65 85) !important;
+  color: rgb(248 250 252) !important;
+  border-left: 4px solid rgb(249 115 22) !important;
+}
+
+/* Override any primary color usage */
+[data-active="true"] {
+  background-color: rgb(241 245 249) !important;
+  color: rgb(15 23 42) !important;
+}
+
+.dark [data-active="true"] {
+  background-color: rgb(51 65 85) !important;
+  color: rgb(248 250 252) !important;
+}
+
+/* ELIMINATE ORANGE TAP HIGHLIGHT - This is the click color! */
+* {
+  -webkit-tap-highlight-color: transparent !important;
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* Allow text selection for inputs and content */
+input, textarea, [contenteditable] {
+  -webkit-user-select: text !important;
+  -khtml-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+  user-select: text !important;
+}
+
+/* Specifically target navigation links */
+nav a, .sidebar a, [role="navigation"] a {
+  -webkit-tap-highlight-color: transparent !important;
+  -webkit-touch-callout: none !important;
+}
+
+/* Nuclear approach - target ALL possible active states */
+a[aria-current="page"],
+a.active,
+.active,
+[data-state="active"],
+[aria-selected="true"],
+.router-link-active,
+.router-link-exact-active {
+  background-color: rgb(241 245 249) !important;
+  color: rgb(15 23 42) !important;
+}
+
+.dark a[aria-current="page"],
+.dark a.active,
+.dark .active,
+.dark [data-state="active"],
+.dark [aria-selected="true"],
+.dark .router-link-active,
+.dark .router-link-exact-active {
+  background-color: rgb(51 65 85) !important;
+  color: rgb(248 250 252) !important;
+}
+
+/* Modern Design System CSS Variables */
+:root {
+  /* ===== SHADCN/UI BASE VARIABLES ===== */
+  --background: 0 0% 100%;
+  --foreground: 222.2 84% 4.9%;
+  --card: 0 0% 100%;
+  --card-foreground: 222.2 84% 4.9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222.2 84% 4.9%;
+  --primary: 215 25% 27%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 210 40% 96%;
+  --secondary-foreground: 222.2 84% 4.9%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+  --accent: 210 40% 96%;
+  --accent-foreground: 222.2 84% 4.9%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 214.3 31.8% 91.4%;
+  --input: 214.3 31.8% 91.4%;
+  --ring: 217.2 91.2% 59.8%;
+  --radius: 0.75rem;
+
+  /* ===== SENTIMENT ANALYSIS SEMANTIC COLORS ===== */
+  /* Positive Sentiment - Green family with proper contrast ratios */
+  --sentiment-positive: 142 76% 36%;           /* #16a34a - WCAG AA compliant */
+  --sentiment-positive-foreground: 0 0% 100%;  /* White text on positive */
+  --sentiment-positive-light: 142 69% 58%;     /* #4ade80 - Lighter variant */
+  --sentiment-positive-bg: 142 76% 96%;        /* #dcfce7 - Background tint */
+  --sentiment-positive-border: 142 76% 86%;    /* #bbf7d0 - Border color */
+  
+  /* Negative Sentiment - Red family with proper contrast ratios */
+  --sentiment-negative: 0 84% 60%;             /* #ef4444 - WCAG AA compliant */
+  --sentiment-negative-foreground: 0 0% 100%;  /* White text on negative */
+  --sentiment-negative-light: 0 84% 70%;       /* #f87171 - Lighter variant */
+  --sentiment-negative-bg: 0 86% 97%;          /* #fef2f2 - Background tint */
+  --sentiment-negative-border: 0 86% 90%;      /* #fecaca - Border color */
+  
+  /* Neutral Sentiment - Gray family with proper contrast ratios */
+  --sentiment-neutral: 215 25% 27%;            /* #334155 - WCAG AA compliant */
+  --sentiment-neutral-foreground: 0 0% 100%;   /* White text on neutral */
+  --sentiment-neutral-light: 215 20% 65%;      /* #94a3b8 - Lighter variant */
+  --sentiment-neutral-bg: 210 40% 98%;         /* #f8fafc - Background tint */
+  --sentiment-neutral-border: 214 32% 91%;     /* #e2e8f0 - Border color */
+  
+  /* Mixed/Processing Sentiment - Blue family */
+  --sentiment-mixed: 217 91% 60%;              /* #3b82f6 - Processing state */
+  --sentiment-mixed-foreground: 0 0% 100%;     /* White text on mixed */
+  --sentiment-mixed-light: 217 91% 70%;        /* #60a5fa - Lighter variant */
+  --sentiment-mixed-bg: 214 100% 97%;          /* #eff6ff - Background tint */
+  --sentiment-mixed-border: 213 94% 88%;       /* #bfdbfe - Border color */
+
+  /* ===== THEME TRANSITION VARIABLES ===== */
+  --theme-transition-duration: 200ms;
+  --theme-transition-easing: cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* ===== ACCESSIBILITY VARIABLES ===== */
+  /* Focus ring colors with high contrast */
+  --focus-ring-color: 217 91% 60%;             /* Blue focus ring */
+  --focus-ring-offset: 2px;
+  --focus-ring-width: 2px;
+  
+  /* High contrast mode support */
+  --high-contrast-border: 0 0% 0%;             /* Black borders in high contrast */
+  --high-contrast-text: 0 0% 0%;               /* Black text in high contrast */
+  --high-contrast-bg: 0 0% 100%;               /* White background in high contrast */
+
+  /* Colors - Primary */
+  --color-primary-50: #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-200: #bfdbfe;
+  --color-primary-300: #93c5fd;
+  --color-primary-400: #60a5fa;
+  --color-primary-500: #2563eb;
+  --color-primary-600: #1d4ed8;
+  --color-primary-700: #1e40af;
+  --color-primary-800: #1e3a8a;
+  --color-primary-900: #1e3a8a;
+  
+  /* Colors - Secondary */
+  --color-secondary-50: #f0fdfa;
+  --color-secondary-100: #ccfbf1;
+  --color-secondary-200: #99f6e4;
+  --color-secondary-300: #5eead4;
+  --color-secondary-400: #2dd4bf;
+  --color-secondary-500: #14b8a6;
+  --color-secondary-600: #0d9488;
+  --color-secondary-700: #0f766e;
+  --color-secondary-800: #115e59;
+  --color-secondary-900: #134e4a;
+  
+  /* Colors - Success */
+  --color-success-50: #f0fdf4;
+  --color-success-100: #dcfce7;
+  --color-success-200: #bbf7d0;
+  --color-success-300: #86efac;
+  --color-success-400: #4ade80;
+  --color-success-500: #22c55e;
+  --color-success-600: #16a34a;
+  --color-success-700: #15803d;
+  --color-success-800: #166534;
+  --color-success-900: #14532d;
+  
+  /* Colors - Error */
+  --color-error-50: #fef2f2;
+  --color-error-100: #fee2e2;
+  --color-error-200: #fecaca;
+  --color-error-300: #fca5a5;
+  --color-error-400: #f87171;
+  --color-error-500: #ef4444;
+  --color-error-600: #dc2626;
+  --color-error-700: #b91c1c;
+  --color-error-800: #991b1b;
+  --color-error-900: #7f1d1d;
+  
+  /* Colors - Warning */
+  --color-warning-50: #fffbeb;
+  --color-warning-100: #fef3c7;
+  --color-warning-200: #fde68a;
+  --color-warning-300: #fcd34d;
+  --color-warning-400: #fbbf24;
+  --color-warning-500: #f59e0b;
+  --color-warning-600: #d97706;
+  --color-warning-700: #b45309;
+  --color-warning-800: #92400e;
+  --color-warning-900: #78350f;
+  
+  /* Colors - Gray */
+  --color-gray-50: #f8fafc;
+  --color-gray-100: #f1f5f9;
+  --color-gray-200: #e2e8f0;
+  --color-gray-300: #cbd5e1;
+  --color-gray-400: #94a3b8;
+  --color-gray-500: #64748b;
+  --color-gray-600: #475569;
+  --color-gray-700: #334155;
+  --color-gray-800: #1e293b;
+  --color-gray-900: #0f172a;
+  
+  /* Semantic Colors */
+  --color-background-primary: #ffffff;
+  --color-background-secondary: #f8fafc;
+  --color-background-tertiary: #f1f5f9;
+  --color-background-dark: #0f172a;
+  
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #475569;
+  --color-text-tertiary: #64748b;
+  --color-text-inverse: #ffffff;
+  --color-text-muted: #94a3b8;
+  
+  --color-border-light: #e2e8f0;
+  --color-border-medium: #cbd5e1;
+  --color-border-dark: #94a3b8;
+  
+  /* Typography */
+  --font-family-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  --font-family-mono: 'JetBrains Mono', 'Monaco', 'Consolas', monospace;
+  
+  /* Spacing */
+  --spacing-1: 0.25rem;
+  --spacing-2: 0.5rem;
+  --spacing-3: 0.75rem;
+  --spacing-4: 1rem;
+  --spacing-5: 1.25rem;
+  --spacing-6: 1.5rem;
+  --spacing-8: 2rem;
+  --spacing-10: 2.5rem;
+  --spacing-12: 3rem;
+  --spacing-16: 4rem;
+  --spacing-20: 5rem;
+  --spacing-24: 6rem;
+  
+  /* Border Radius */
+  --radius-sm: 0.25rem;
+  --radius-base: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.5rem;
+  --radius-full: 9999px;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-base: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  --shadow-inner: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+  
+  /* Animation */
+  --duration-fast: 150ms;
+  --duration-normal: 200ms;
+  --duration-slow: 300ms;
+  --easing: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ===== BASE STYLES WITH THEME TRANSITIONS ===== */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  
+  /* Force blue focus rings on all interactive elements */
+  button:focus-visible,
+  [role="button"]:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid #3b82f6 !important;
+    outline-offset: 2px !important;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    /* Enable theme transitions on root element */
+    transition: color-scheme var(--theme-transition-duration) var(--theme-transition-easing);
+  }
+
+  body {
+    margin: 0;
+    font-family: var(--font-family-sans);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: hsl(var(--foreground));
+    background-color: hsl(var(--background));
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    min-height: 100vh;
+    /* Smooth theme transitions */
+    transition: 
+      color var(--theme-transition-duration) var(--theme-transition-easing),
+      background-color var(--theme-transition-duration) var(--theme-transition-easing);
+  }
+
+  /* Theme transition for all elements */
+  *,
+  *::before,
+  *::after {
+    transition: 
+      background-color var(--theme-transition-duration) var(--theme-transition-easing),
+      border-color var(--theme-transition-duration) var(--theme-transition-easing),
+      color var(--theme-transition-duration) var(--theme-transition-easing),
+      fill var(--theme-transition-duration) var(--theme-transition-easing),
+      stroke var(--theme-transition-duration) var(--theme-transition-easing),
+      box-shadow var(--theme-transition-duration) var(--theme-transition-easing);
+  }
+  
+  /* Reduce motion for users who prefer it */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto !important;
+    }
+    
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* High contrast mode support */
+  @media (prefers-contrast: high) {
+    :root {
+      --border: var(--high-contrast-border);
+      --foreground: var(--high-contrast-text);
+      --background: var(--high-contrast-bg);
+    }
+  }
+
+  /* Focus styles for accessibility - Force blue focus rings */
+  :focus-visible {
+    outline: 2px solid hsl(217.2 91.2% 59.8%) !important;
+    outline-offset: 2px;
+    border-radius: calc(var(--radius) * 0.5);
+  }
+  
+  /* Override any button focus rings specifically */
+  button:focus-visible,
+  [role="button"]:focus-visible {
+    outline: 2px solid hsl(217.2 91.2% 59.8%) !important;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 2px hsl(217.2 91.2% 59.8% / 0.2) !important;
+  }
+}
+
+/* Component Base Classes */
+@layer components {
+  /* Button Components */
+  .btn {
+    @apply inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  
+  .btn-primary {
+    @apply bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500 shadow-sm hover:shadow-md;
+  }
+  
+  .btn-secondary {
+    @apply bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 focus:ring-blue-500 shadow-sm;
+  }
+  
+  .btn-ghost {
+    @apply text-gray-600 hover:text-gray-900 hover:bg-gray-100 focus:ring-blue-500;
+  }
+  
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+  
+  .btn-lg {
+    @apply px-6 py-3 text-base;
+  }
+  
+  /* Card Components */
+  .card {
+    @apply bg-white rounded-xl border border-gray-200 shadow-sm;
+  }
+  
+  .card-elevated {
+    @apply bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow duration-200;
+  }
+  
+  .card-body {
+    @apply p-6;
+  }
+  
+  .card-header {
+    @apply px-6 py-4 border-b border-gray-200;
+  }
+  
+  .card-footer {
+    @apply px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-xl;
+  }
+  
+  /* Input Components */
+  .input {
+    @apply w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors duration-200;
+  }
+  
+  .input-sm {
+    @apply px-2.5 py-1.5 text-xs;
+  }
+  
+  .input-lg {
+    @apply px-4 py-3 text-base;
+  }
+  
+  /* Badge Components with Sentiment Support */
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+    transition: all var(--theme-transition-duration) var(--theme-transition-easing);
+  }
+  
+  .badge-primary {
+    background-color: hsl(var(--primary) / 0.1);
+    color: hsl(var(--primary));
+    border: 1px solid hsl(var(--primary) / 0.2);
+  }
+  
+  .badge-success {
+    @apply bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400;
+  }
+  
+  .badge-warning {
+    @apply bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400;
+  }
+  
+  .badge-error {
+    @apply bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400;
+  }
+  
+  .badge-gray {
+    @apply bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300;
+  }
+
+  /* Sentiment-specific badge variants */
+  .badge-sentiment-positive {
+    background-color: hsl(var(--sentiment-positive-bg));
+    color: hsl(var(--sentiment-positive));
+    border: 1px solid hsl(var(--sentiment-positive-border));
+  }
+  
+  .badge-sentiment-negative {
+    background-color: hsl(var(--sentiment-negative-bg));
+    color: hsl(var(--sentiment-negative));
+    border: 1px solid hsl(var(--sentiment-negative-border));
+  }
+  
+  .badge-sentiment-neutral {
+    background-color: hsl(var(--sentiment-neutral-bg));
+    color: hsl(var(--sentiment-neutral));
+    border: 1px solid hsl(var(--sentiment-neutral-border));
+  }
+  
+  .badge-sentiment-mixed {
+    background-color: hsl(var(--sentiment-mixed-bg));
+    color: hsl(var(--sentiment-mixed));
+    border: 1px solid hsl(var(--sentiment-mixed-border));
+  }
+  
+  /* Navigation Components */
+  .nav-item {
+    @apply flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200;
+  }
+  
+  .nav-item-active {
+    @apply bg-blue-50 text-blue-700 border-r-2 border-blue-600;
+  }
+  
+  .nav-item-inactive {
+    @apply text-gray-600 hover:text-gray-900 hover:bg-gray-100;
+  }
+  
+  /* Screen reader only content */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  
+  /* High contrast focus indicators */
+  .focus-visible:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+  
+  /* Loading states to prevent layout shift */
+  .loading-skeleton {
+    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: loading 1.5s infinite;
+  }
+  
+  @keyframes loading {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
+  }
+  
+  /* Utility Classes */
+  .text-gradient {
+    @apply bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent;
+  }
+  
+  .bg-gradient-primary {
+    @apply bg-gradient-to-r from-blue-600 to-blue-700;
+  }
+  
+  .bg-gradient-secondary {
+    @apply bg-gradient-to-r from-teal-500 to-teal-600;
+  }
+  
+  .bg-gradient-success {
+    @apply bg-gradient-to-r from-green-500 to-green-600;
+  }
+  
+  .bg-gradient-warning {
+    @apply bg-gradient-to-r from-yellow-500 to-orange-500;
+  }
+  
+  .bg-gradient-error {
+    @apply bg-gradient-to-r from-red-500 to-red-600;
+  }
+  
+  /* Animation Classes */
+  .animate-fade-in {
+    animation: fadeIn var(--duration-normal) var(--easing);
+  }
+  
+  .animate-slide-up {
+    animation: slideUp var(--duration-normal) var(--easing);
+  }
+  
+  .animate-scale-in {
+    animation: scaleIn var(--duration-fast) var(--easing);
+  }
+  
+  /* Interactive Feedback Animation Classes */
+  .animate-ripple {
+    animation: ripple 0.6s ease-out;
+  }
+  
+  .animate-button-press {
+    animation: button-press 0.15s ease-out;
+  }
+  
+  .animate-focus-ring {
+    animation: focus-ring 0.3s ease-out;
+  }
+  
+  .animate-success-bounce {
+    animation: success-bounce 0.6s ease-out;
+  }
+  
+  .animate-error-shake {
+    animation: error-shake 0.5s ease-out;
+  }
+  
+  /* Text utilities */
+  .line-clamp-1 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+  }
+  
+  .line-clamp-2 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  
+  .line-clamp-3 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+
+  /* Performance optimized animations */
+  .hover-lift {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  
+  .hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  }
+  
+  /* Interactive hover effects */
+  .hover-scale {
+    transition: transform 0.2s ease;
+  }
+  
+  .hover-scale:hover {
+    transform: scale(1.05);
+  }
+  
+  .hover-glow {
+    transition: box-shadow 0.2s ease;
+  }
+  
+  .hover-glow:hover {
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+  }
+  
+  /* Focus states */
+  .focus-ring-enhanced {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2;
+    transition: box-shadow 0.2s ease;
+  }
+  
+  /* Button press states */
+  .active-press {
+    transform: scale(0.95);
+    transition: transform 0.1s ease;
+  }
+  
+  /* Loading states */
+  .loading-pulse {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+  
+  /* Success states */
+  .success-glow {
+    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+    animation: success-bounce 0.6s ease-out;
+  }
+  
+  /* Error states */
+  .error-glow {
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
+    animation: error-shake 0.5s ease-out;
+  }
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 5px currentColor;
+  }
+  50% {
+    opacity: 0.7;
+    box-shadow: 0 0 20px currentColor;
+  }
+}
+
+@keyframes bounce-subtle {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes ripple {
+  0% {
+    transform: scale(0);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+
+@keyframes button-press {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.95);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes focus-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5);
+  }
+  100% {
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0);
+  }
+}
+
+@keyframes success-bounce {
+  0%, 20%, 50%, 80%, 100% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-4px);
+  }
+  60% {
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes error-shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  10%, 30%, 50%, 70%, 90% {
+    transform: translateX(-2px);
+  }
+  20%, 40%, 60%, 80% {
+    transform: translateX(2px);
+  }
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-gray-100);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-gray-300);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-gray-400);
+}
+
+/* Focus Styles */
+.focus-ring {
+  @apply focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2;
+}
+
+/* Tour highlighting styles */
+.tour-highlight {
+  position: relative;
+  z-index: 51 !important;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.5), 0 0 0 9999px rgba(0, 0, 0, 0.6) !important;
+  border-radius: 8px !important;
+  transition: all 0.3s ease !important;
+}
+
+.tour-highlight * {
+  position: relative;
+  z-index: 52;
+}
+
+/* ===== RAGERADAR SENTIMENT DESIGN SYSTEM ===== */
+@layer utilities {
+  /* ===== SENTIMENT COLOR UTILITIES ===== */
+  
+  /* Positive Sentiment Utilities */
+  .bg-sentiment-positive {
+    background-color: hsl(var(--sentiment-positive));
+  }
+  .bg-sentiment-positive-light {
+    background-color: hsl(var(--sentiment-positive-light));
+  }
+  .bg-sentiment-positive-bg {
+    background-color: hsl(var(--sentiment-positive-bg));
+  }
+  .text-sentiment-positive {
+    color: hsl(var(--sentiment-positive));
+  }
+  .border-sentiment-positive {
+    border-color: hsl(var(--sentiment-positive-border));
+  }
+  
+  /* Negative Sentiment Utilities */
+  .bg-sentiment-negative {
+    background-color: hsl(var(--sentiment-negative));
+  }
+  .bg-sentiment-negative-light {
+    background-color: hsl(var(--sentiment-negative-light));
+  }
+  .bg-sentiment-negative-bg {
+    background-color: hsl(var(--sentiment-negative-bg));
+  }
+  .text-sentiment-negative {
+    color: hsl(var(--sentiment-negative));
+  }
+  .border-sentiment-negative {
+    border-color: hsl(var(--sentiment-negative-border));
+  }
+  
+  /* Neutral Sentiment Utilities */
+  .bg-sentiment-neutral {
+    background-color: hsl(var(--sentiment-neutral));
+  }
+  .bg-sentiment-neutral-light {
+    background-color: hsl(var(--sentiment-neutral-light));
+  }
+  .bg-sentiment-neutral-bg {
+    background-color: hsl(var(--sentiment-neutral-bg));
+  }
+  .text-sentiment-neutral {
+    color: hsl(var(--sentiment-neutral));
+  }
+  .border-sentiment-neutral {
+    border-color: hsl(var(--sentiment-neutral-border));
+  }
+  
+  /* Mixed Sentiment Utilities */
+  .bg-sentiment-mixed {
+    background-color: hsl(var(--sentiment-mixed));
+  }
+  .bg-sentiment-mixed-light {
+    background-color: hsl(var(--sentiment-mixed-light));
+  }
+  .bg-sentiment-mixed-bg {
+    background-color: hsl(var(--sentiment-mixed-bg));
+  }
+  .text-sentiment-mixed {
+    color: hsl(var(--sentiment-mixed));
+  }
+  .border-sentiment-mixed {
+    border-color: hsl(var(--sentiment-mixed-border));
+  }
+
+  /* ===== SENTIMENT GRADIENT UTILITIES ===== */
+  .bg-gradient-sentiment-positive {
+    background: linear-gradient(135deg, hsl(var(--sentiment-positive)), hsl(var(--sentiment-positive-light)));
+  }
+  .bg-gradient-sentiment-negative {
+    background: linear-gradient(135deg, hsl(var(--sentiment-negative)), hsl(var(--sentiment-negative-light)));
+  }
+  .bg-gradient-sentiment-neutral {
+    background: linear-gradient(135deg, hsl(var(--sentiment-neutral)), hsl(var(--sentiment-neutral-light)));
+  }
+  .bg-gradient-sentiment-mixed {
+    background: linear-gradient(135deg, hsl(var(--sentiment-mixed)), hsl(var(--sentiment-mixed-light)));
+  }
+
+  /* ===== BRAND GRADIENTS ===== */
+  .bg-brand-primary {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary) / 0.8));
+  }
+  
+  .bg-brand-text {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary) / 0.8));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  
+  .bg-brand-subtle {
+    background: linear-gradient(135deg, hsl(var(--primary) / 0.05), hsl(var(--primary) / 0.1));
+  }
+
+  /* ===== THEME UTILITIES ===== */
+  .theme-transition {
+    transition: all var(--theme-transition-duration) var(--theme-transition-easing);
+  }
+  
+  .theme-transition-colors {
+    transition: 
+      background-color var(--theme-transition-duration) var(--theme-transition-easing),
+      border-color var(--theme-transition-duration) var(--theme-transition-easing),
+      color var(--theme-transition-duration) var(--theme-transition-easing);
+  }
+
+  /* ===== ACCESSIBILITY UTILITIES ===== */
+  .focus-ring-sentiment-positive:focus-visible {
+    outline: var(--focus-ring-width) solid hsl(var(--sentiment-positive));
+    outline-offset: var(--focus-ring-offset);
+  }
+  
+  .focus-ring-sentiment-negative:focus-visible {
+    outline: var(--focus-ring-width) solid hsl(var(--sentiment-negative));
+    outline-offset: var(--focus-ring-offset);
+  }
+  
+  .focus-ring-sentiment-neutral:focus-visible {
+    outline: var(--focus-ring-width) solid hsl(var(--sentiment-neutral));
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  /* ===== PERFORMANCE OPTIMIZATIONS ===== */
+  .img-responsive {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+  
+  .gpu-accelerated {
+    transform: translateZ(0);
+    will-change: transform;
+  }
+  
+  .text-optimized {
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* ===== SENTIMENT INDICATOR UTILITIES ===== */
+  .sentiment-indicator {
+    @apply inline-flex items-center justify-center w-3 h-3 rounded-full;
+  }
+  
+  .sentiment-indicator-positive {
+    @apply sentiment-indicator bg-sentiment-positive;
+  }
+  
+  .sentiment-indicator-negative {
+    @apply sentiment-indicator bg-sentiment-negative;
+  }
+  
+  .sentiment-indicator-neutral {
+    @apply sentiment-indicator bg-sentiment-neutral;
+  }
+  
+  .sentiment-indicator-mixed {
+    @apply sentiment-indicator bg-sentiment-mixed;
+  }
+
+  /* ===== SENTIMENT PROGRESS BARS ===== */
+  .progress-sentiment-positive {
+    background: linear-gradient(90deg, hsl(var(--sentiment-positive-bg)), hsl(var(--sentiment-positive)));
+  }
+  
+  .progress-sentiment-negative {
+    background: linear-gradient(90deg, hsl(var(--sentiment-negative-bg)), hsl(var(--sentiment-negative)));
+  }
+  
+  .progress-sentiment-neutral {
+    background: linear-gradient(90deg, hsl(var(--sentiment-neutral-bg)), hsl(var(--sentiment-neutral)));
+  }
+}
+
+/* Print Styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
+
+/* FORCE BLACK TEXT ONLY ON LANDING PAGE SEARCH INPUT */
+.landing-page input[type="text"] {
+  color: #000000 !important;
+  -webkit-text-fill-color: #000000 !important;
+  caret-color: #FF0000 !important;
+}
+
+.landing-page input[type="text"]::placeholder {
+  color: #666666 !important;
+  opacity: 0.8 !important;
+}
+
+/* ===== DARK MODE THEME VARIABLES ===== */
+.dark {
+  /* shadcn/ui dark mode base */
+  --background: 222.2 84% 4.9%;
+  --foreground: 210 40% 98%;
+  --card: 222.2 84% 4.9%;
+  --card-foreground: 210 40% 98%;
+  --popover: 222.2 84% 4.9%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 217.2 91.2% 59.8%;
+  --primary-foreground: 222.2 84% 4.9%;
+  --secondary: 217.2 32.6% 17.5%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217.2 32.6% 17.5%;
+  --muted-foreground: 215 20.2% 65.1%;
+  --accent: 217.2 32.6% 17.5%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 217.2 32.6% 17.5%;
+  --input: 217.2 32.6% 17.5%;
+  --ring: 224.3 76.3% 94.1%;
+
+  /* ===== DARK MODE SENTIMENT COLORS ===== */
+  /* Adjusted for dark backgrounds with proper contrast */
+  --sentiment-positive: 142 69% 58%;           /* #4ade80 - Brighter for dark mode */
+  --sentiment-positive-foreground: 222.2 84% 4.9%; /* Dark text on bright positive */
+  --sentiment-positive-light: 142 76% 68%;     /* #6ee7b7 - Even lighter variant */
+  --sentiment-positive-bg: 142 76% 6%;         /* #052e16 - Dark background tint */
+  --sentiment-positive-border: 142 76% 16%;    /* #166534 - Dark border color */
+  
+  --sentiment-negative: 0 84% 70%;             /* #f87171 - Brighter for dark mode */
+  --sentiment-negative-foreground: 222.2 84% 4.9%; /* Dark text on bright negative */
+  --sentiment-negative-light: 0 84% 80%;       /* #fca5a5 - Even lighter variant */
+  --sentiment-negative-bg: 0 86% 7%;           /* #1f1917 - Dark background tint */
+  --sentiment-negative-border: 0 86% 20%;      /* #7f1d1d - Dark border color */
+  
+  --sentiment-neutral: 215 20% 65%;            /* #94a3b8 - Brighter for dark mode */
+  --sentiment-neutral-foreground: 222.2 84% 4.9%; /* Dark text on bright neutral */
+  --sentiment-neutral-light: 215 20% 75%;      /* #cbd5e1 - Even lighter variant */
+  --sentiment-neutral-bg: 210 40% 8%;          /* #0f172a - Dark background tint */
+  --sentiment-neutral-border: 214 32% 18%;     /* #334155 - Dark border color */
+  
+  --sentiment-mixed: 217 91% 70%;              /* #60a5fa - Brighter for dark mode */
+  --sentiment-mixed-foreground: 222.2 84% 4.9%; /* Dark text on bright mixed */
+  --sentiment-mixed-light: 217 91% 80%;        /* #93c5fd - Even lighter variant */
+  --sentiment-mixed-bg: 214 100% 7%;           /* #0c1e3e - Dark background tint */
+  --sentiment-mixed-border: 213 94% 18%;       /* #1e40af - Dark border color */
+
+  /* Dark mode color overrides for legacy variables */
+  --color-background-primary: #0f172a;
+  --color-background-secondary: #1e293b;
+  --color-background-tertiary: #334155;
+  --color-background-dark: #020617;
+  
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #cbd5e1;
+  --color-text-tertiary: #94a3b8;
+  --color-text-inverse: #0f172a;
+  --color-text-muted: #64748b;
+  
+  --color-border-light: #334155;
+  --color-border-medium: #475569;
+  --color-border-dark: #64748b;
+
+  /* Dark mode focus ring - higher contrast */
+  --focus-ring-color: 217 91% 70%;             /* Brighter blue focus ring */
+}
+
+/* ===== SYSTEM PREFERENCE DARK MODE ===== */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    /* Apply dark mode variables when system prefers dark and no explicit theme is set */
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222.2 84% 4.9%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 224.3 76.3% 94.1%;
+
+    /* System dark mode sentiment colors */
+    --sentiment-positive: 142 69% 58%;
+    --sentiment-positive-foreground: 222.2 84% 4.9%;
+    --sentiment-positive-light: 142 76% 68%;
+    --sentiment-positive-bg: 142 76% 6%;
+    --sentiment-positive-border: 142 76% 16%;
+    
+    --sentiment-negative: 0 84% 70%;
+    --sentiment-negative-foreground: 222.2 84% 4.9%;
+    --sentiment-negative-light: 0 84% 80%;
+    --sentiment-negative-bg: 0 86% 7%;
+    --sentiment-negative-border: 0 86% 20%;
+    
+    --sentiment-neutral: 215 20% 65%;
+    --sentiment-neutral-foreground: 222.2 84% 4.9%;
+    --sentiment-neutral-light: 215 20% 75%;
+    --sentiment-neutral-bg: 210 40% 8%;
+    --sentiment-neutral-border: 214 32% 18%;
+    
+    --sentiment-mixed: 217 91% 70%;
+    --sentiment-mixed-foreground: 222.2 84% 4.9%;
+    --sentiment-mixed-light: 217 91% 80%;
+    --sentiment-mixed-bg: 214 100% 7%;
+    --sentiment-mixed-border: 213 94% 18%;
+
+    /* System dark mode legacy colors */
+    --color-background-primary: #0f172a;
+    --color-background-secondary: #1e293b;
+    --color-text-primary: #f8fafc;
+    --color-text-secondary: #cbd5e1;
+    --color-border-light: #334155;
+    --color-border-medium: #475569;
+    
+    --focus-ring-color: 217 91% 70%;
+  }
+}
+
+/* ===== EXPLICIT THEME OVERRIDES ===== */
+[data-theme="light"] {
+  /* Force light mode regardless of system preference */
+  --background: 0 0% 100%;
+  --foreground: 222.2 84% 4.9%;
+  /* ... other light mode variables are already in :root */
+}
+
+[data-theme="dark"] {
+  /* Force dark mode regardless of system preference */
+  --background: 222.2 84% 4.9%;
+  --foreground: 210 40% 98%;
+  /* Apply all dark mode variables */
+  --card: 222.2 84% 4.9%;
+  --card-foreground: 210 40% 98%;
+  --popover: 222.2 84% 4.9%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 217.2 91.2% 59.8%;
+  --primary-foreground: 222.2 84% 4.9%;
+  --secondary: 217.2 32.6% 17.5%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217.2 32.6% 17.5%;
+  --muted-foreground: 215 20.2% 65.1%;
+  --accent: 217.2 32.6% 17.5%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 217.2 32.6% 17.5%;
+  --input: 217.2 32.6% 17.5%;
+  --ring: 224.3 76.3% 94.1%;
+
+  /* Dark theme sentiment colors */
+  --sentiment-positive: 142 69% 58%;
+  --sentiment-positive-foreground: 222.2 84% 4.9%;
+  --sentiment-positive-light: 142 76% 68%;
+  --sentiment-positive-bg: 142 76% 6%;
+  --sentiment-positive-border: 142 76% 16%;
+  
+  --sentiment-negative: 0 84% 70%;
+  --sentiment-negative-foreground: 222.2 84% 4.9%;
+  --sentiment-negative-light: 0 84% 80%;
+  --sentiment-negative-bg: 0 86% 7%;
+  --sentiment-negative-border: 0 86% 20%;
+  
+  --sentiment-neutral: 215 20% 65%;
+  --sentiment-neutral-foreground: 222.2 84% 4.9%;
+  --sentiment-neutral-light: 215 20% 75%;
+  --sentiment-neutral-bg: 210 40% 8%;
+  --sentiment-neutral-border: 214 32% 18%;
+  
+  --sentiment-mixed: 217 91% 70%;
+  --sentiment-mixed-foreground: 222.2 84% 4.9%;
+  --sentiment-mixed-light: 217 91% 80%;
+  --sentiment-mixed-bg: 214 100% 7%;
+  --sentiment-mixed-border: 213 94% 18%;
+
+  --color-background-primary: #0f172a;
+  --color-background-secondary: #1e293b;
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #cbd5e1;
+  --color-border-light: #334155;
+  --color-border-medium: #475569;
+  
+  --focus-ring-color: 217 91% 70%;
+}
+/* ===== 
+REPORT COMPONENTS DARK THEME OVERRIDES ===== */
+/* Force dark theme styling for all report components */
+
+/* Main containers for report pages */
+.reports-container,
+[class*="ReportsAnalysis"],
+[class*="ReportsTrends"], 
+[class*="MentionsExplorer"],
+[class*="CompetitiveAnalysis"] {
+  background-color: #111827 !important;
+  color: #f9fafb !important;
+  min-height: 100vh;
+}
+
+/* All white background cards in reports */
+.reports-container .bg-white,
+[class*="Reports"] .bg-white,
+[class*="Mentions"] .bg-white,
+[class*="Competitive"] .bg-white {
+  background-color: #1f2937 !important;
+  border-color: #374151 !important;
+  color: #f9fafb !important;
+}
+
+/* Text color overrides for reports */
+.reports-container .text-gray-900,
+[class*="Reports"] .text-gray-900,
+[class*="Mentions"] .text-gray-900,
+[class*="Competitive"] .text-gray-900 {
+  color: #f9fafb !important;
+}
+
+.reports-container .text-gray-800,
+[class*="Reports"] .text-gray-800,
+[class*="Mentions"] .text-gray-800,
+[class*="Competitive"] .text-gray-800 {
+  color: #e5e7eb !important;
+}
+
+.reports-container .text-gray-700,
+[class*="Reports"] .text-gray-700,
+[class*="Mentions"] .text-gray-700,
+[class*="Competitive"] .text-gray-700 {
+  color: #d1d5db !important;
+}
+
+.reports-container .text-gray-600,
+[class*="Reports"] .text-gray-600,
+[class*="Mentions"] .text-gray-600,
+[class*="Competitive"] .text-gray-600 {
+  color: #9ca3af !important;
+}
+
+.reports-container .text-gray-500,
+[class*="Reports"] .text-gray-500,
+[class*="Mentions"] .text-gray-500,
+[class*="Competitive"] .text-gray-500 {
+  color: #6b7280 !important;
+}
+
+/* Background overrides for different gray shades */
+.reports-container .bg-gray-50,
+[class*="Reports"] .bg-gray-50,
+[class*="Mentions"] .bg-gray-50,
+[class*="Competitive"] .bg-gray-50 {
+  background-color: #374151 !important;
+}
+
+.reports-container .bg-gray-100,
+[class*="Reports"] .bg-gray-100,
+[class*="Mentions"] .bg-gray-100,
+[class*="Competitive"] .bg-gray-100 {
+  background-color: #4b5563 !important;
+}
+
+.reports-container .bg-gray-200,
+[class*="Reports"] .bg-gray-200,
+[class*="Mentions"] .bg-gray-200,
+[class*="Competitive"] .bg-gray-200 {
+  background-color: #6b7280 !important;
+}
+
+/* Border color overrides */
+.reports-container .border-gray-200,
+[class*="Reports"] .border-gray-200,
+[class*="Mentions"] .border-gray-200,
+[class*="Competitive"] .border-gray-200 {
+  border-color: #374151 !important;
+}
+
+.reports-container .border-gray-300,
+[class*="Reports"] .border-gray-300,
+[class*="Mentions"] .border-gray-300,
+[class*="Competitive"] .border-gray-300 {
+  border-color: #4b5563 !important;
+}
+
+/* Form elements in reports */
+.reports-container select,
+.reports-container input,
+[class*="Reports"] select,
+[class*="Reports"] input,
+[class*="Mentions"] select,
+[class*="Mentions"] input,
+[class*="Competitive"] select,
+[class*="Competitive"] input {
+  background-color: #1f2937 !important;
+  border-color: #4b5563 !important;
+  color: #f9fafb !important;
+}
+
+.reports-container select:focus,
+.reports-container input:focus,
+[class*="Reports"] select:focus,
+[class*="Reports"] input:focus,
+[class*="Mentions"] select:focus,
+[class*="Mentions"] input:focus,
+[class*="Competitive"] select:focus,
+[class*="Competitive"] input:focus {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 1px #3b82f6 !important;
+}
+
+/* Gradient backgrounds that need dark theme */
+.reports-container .from-purple-50,
+[class*="Reports"] .from-purple-50,
+[class*="Mentions"] .from-purple-50,
+[class*="Competitive"] .from-purple-50 {
+  --tw-gradient-from: #1f2937 !important;
+}
+
+.reports-container .to-indigo-50,
+[class*="Reports"] .to-indigo-50,
+[class*="Mentions"] .to-indigo-50,
+[class*="Competitive"] .to-indigo-50 {
+  --tw-gradient-to: #374151 !important;
+}
+
+.reports-container .from-blue-50,
+[class*="Reports"] .from-blue-50,
+[class*="Mentions"] .from-blue-50,
+[class*="Competitive"] .from-blue-50 {
+  --tw-gradient-from: #1e3a8a !important;
+}
+
+.reports-container .to-blue-50,
+[class*="Reports"] .to-blue-50,
+[class*="Mentions"] .to-blue-50,
+[class*="Competitive"] .to-blue-50 {
+  --tw-gradient-to: #1e40af !important;
+}
+
+.reports-container .from-orange-50,
+[class*="Reports"] .from-orange-50,
+[class*="Mentions"] .from-orange-50,
+[class*="Competitive"] .from-orange-50 {
+  --tw-gradient-from: #9a3412 !important;
+}
+
+.reports-container .to-red-50,
+[class*="Reports"] .to-red-50,
+[class*="Mentions"] .to-red-50,
+[class*="Competitive"] .to-red-50 {
+  --tw-gradient-to: #991b1b !important;
+}
+
+/* Chart.js canvas backgrounds */
+.reports-container canvas,
+[class*="Reports"] canvas,
+[class*="Mentions"] canvas,
+[class*="Competitive"] canvas {
+  background-color: transparent !important;
+}
+
+/* Loading states */
+.reports-container .text-gray-600,
+[class*="Reports"] .text-gray-600,
+[class*="Mentions"] .text-gray-600,
+[class*="Competitive"] .text-gray-600 {
+  color: #9ca3af !important;
+}
+
+/* Ensure all report pages have dark background */
+body:has([class*="Reports"]),
+body:has([class*="Mentions"]),
+body:has([class*="Competitive"]) {
+  background-color: #111827 !important;
+}
+
+/* Override any remaining white backgrounds in report components */
+div[class*="p-6"]:has(h1[class*="text-2xl"]) {
+  background-color: #111827 !important;
+}
+
+/* Specific overrides for emotion heatmap and other complex components */
+.reports-container .rounded-lg,
+[class*="Reports"] .rounded-lg,
+[class*="Mentions"] .rounded-lg,
+[class*="Competitive"] .rounded-lg {
+  background-color: #1f2937 !important;
+  border-color: #374151 !important;
+}
+
+/* Button overrides in reports */
+.reports-container button,
+[class*="Reports"] button,
+[class*="Mentions"] button,
+[class*="Competitive"] button {
+  background-color: #374151 !important;
+  color: #f9fafb !important;
+  border-color: #4b5563 !important;
+}
+
+.reports-container button:hover,
+[class*="Reports"] button:hover,
+[class*="Mentions"] button:hover,
+[class*="Competitive"] button:hover {
+  background-color: #4b5563 !important;
+}
+
+/* Pagination and table elements */
+.reports-container .divide-y,
+[class*="Reports"] .divide-y,
+[class*="Mentions"] .divide-y,
+[class*="Competitive"] .divide-y {
+  border-color: #374151 !important;
+}
+
+.reports-container .hover\\:bg-gray-50:hover,
+[class*="Reports"] .hover\\:bg-gray-50:hover,
+[class*="Mentions"] .hover\\:bg-gray-50:hover,
+[class*="Competitive"] .hover\\:bg-gray-50:hover {
+  background-color: #374151 !important;
+}
+/* ===== R
+EPORTS ANALYSIS ANIMATIONS ===== */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 5px rgba(59, 130, 246, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.6);
+  }
+}
+
+@keyframes heatmap-cell-hover {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1.1);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.6s ease-out forwards;
+  opacity: 0;
+}
+
+.animate-slide-in {
+  animation: slide-in 0.4s ease-out forwards;
+  opacity: 0;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.heatmap-cell:hover {
+  animation: heatmap-cell-hover 0.3s ease-out forwards;
+}
+
+/* Chart container improvements */
+.chart-container {
+  position: relative;
+  height: 100%;
+  width: 100%;
+}
+
+.chart-container canvas {
+  border-radius: 8px;
+}
+
+/* Improved tooltip styles for charts */
+.chartjs-tooltip {
+  background: rgba(17, 24, 39, 0.95) !important;
+  border: 1px solid #374151 !important;
+  border-radius: 8px !important;
+  color: #F3F4F6 !important;
+  font-family: 'Inter', sans-serif !important;
+  padding: 12px !important;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Responsive heatmap improvements */
+@media (max-width: 768px) {
+  .heatmap-grid {
+    font-size: 0.75rem;
+  }
+  
+  .heatmap-cell {
+    min-height: 35px !important;
+    padding: 0.5rem !important;
+  }
+}
+
+/* Loading state improvements */
+.loading-shimmer {
+  background: linear-gradient(90deg, #374151 25%, #4b5563 50%, #374151 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* Keyword card hover effects */
+.keyword-card {
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.keyword-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  transition: left 0.5s ease;
+}
+
+.keyword-card:hover::before {
+  left: 100%;
+}
+
+.keyword-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+}
+
+/* Sentiment distribution chart enhancements */
+.sentiment-chart-container {
+  position: relative;
+}
+
+.sentiment-chart-container::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 60%;
+  height: 60%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(15, 23, 42, 0.8) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Platform icon improvements */
+.platform-icon {
+  transition: all 0.3s ease;
+  filter: grayscale(0.3);
+}
+
+.platform-icon:hover {
+  filter: grayscale(0);
+  transform: scale(1.1);
+}
+
+/* Emotion icon improvements */
+.emotion-icon {
+  transition: all 0.3s ease;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+}
+
+.emotion-icon:hover {
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2));
+  transform: scale(1.05);
+}
+
+/* Legend improvements */
+.legend-item {
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.legend-item:hover {
+  transform: scale(1.05);
+  opacity: 0.8;
+}
+
+/* Responsive improvements */
+@media (max-width: 1024px) {
+  .chart-container {
+    height: 300px;
+  }
+}
+
+@media (max-width: 640px) {
+  .chart-container {
+    height: 250px;
+  }
+  
+  .animate-fade-in {
+    animation-duration: 0.4s;
+  }
+  
+  .animate-slide-in {
+    animation-duration: 0.3s;
+  }
+}
+
+/* COMPLETE FOCUS OUTLINE REMOVAL FOR SPECIFIC INPUTS */
+.no-focus-outline,
+.no-focus-outline:focus,
+.no-focus-outline:focus-visible,
+.no-focus-outline:active {
+  outline: none !important;
+  box-shadow: none !important;
+  border-color: inherit !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  appearance: none !important;
+}
+
+/* Override any browser default focus styles */
+input.no-focus-outline:focus {
+  outline: none !important;
+  box-shadow: none !important;
+  border: 3px solid #FF0000 !important;
+}
+
+/* Remove blue highlight on mobile webkit browsers */
+input.no-focus-outline {
+  -webkit-tap-highlight-color: transparent !important;
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: text !important;
+}
+
+/* NUCLEAR OPTION - Remove ALL focus outlines from inputs globally */
+input[type="text"]:focus,
+input[type="text"]:focus-visible,
+input[type="text"]:active,
+input:focus,
+input:focus-visible,
+input:active {
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  appearance: none !important;
+}
+
+/* Specifically target the SmartInput component */
+div[style*="position: relative"] input[type="text"] {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+div[style*="position: relative"] input[type="text"]:focus {
+  outline: none !important;
+  box-shadow: none !important;
+  border: 3px solid #FF0000 !important;
+}
+
+/* Target the AnalysisPage search input as well */
+input[placeholder*="Enter brand name"] {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+input[placeholder*="Enter brand name"]:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* ULTIMATE NUCLEAR OPTION - Remove ALL possible focus styles */
+* {
+  -webkit-tap-highlight-color: transparent !important;
+}
+
+*:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+*:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* ===== CYBER-HUD & GLASSMORPHISM DESIGN SYSTEM ===== */
+.cyber-hud-bg {
+  background: radial-gradient(circle at 50% 50%, #0d1527 0%, #070a13 100%) !important;
+  color: #e2e8f0 !important;
+}
+
+.glass-card {
+  background: rgba(15, 23, 42, 0.6) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 1rem !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.glass-card:hover {
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  background: rgba(15, 23, 42, 0.7) !important;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3) !important;
+}
+
+.glow-cyan {
+  border-left: 3px solid #06b6d4 !important;
+  box-shadow: 0 0 15px rgba(6, 182, 212, 0.1) !important;
+}
+.glow-cyan:hover {
+  box-shadow: 0 0 25px rgba(6, 182, 212, 0.25) !important;
+  border-color: #06b6d4 !important;
+}
+
+.glow-red {
+  border-left: 3px solid #ef4444 !important;
+  box-shadow: 0 0 15px rgba(239, 68, 68, 0.1) !important;
+}
+.glow-red:hover {
+  box-shadow: 0 0 25px rgba(239, 68, 68, 0.25) !important;
+  border-color: #ef4444 !important;
+}
+
+.glow-emerald {
+  border-left: 3px solid #10b981 !important;
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.1) !important;
+}
+.glow-emerald:hover {
+  box-shadow: 0 0 25px rgba(16, 185, 129, 0.25) !important;
+  border-color: #10b981 !important;
+}
+
+.glow-purple {
+  border-left: 3px solid #8b5cf6 !important;
+  box-shadow: 0 0 15px rgba(139, 92, 246, 0.1) !important;
+}
+.glow-purple:hover {
+  box-shadow: 0 0 25px rgba(139, 92, 246, 0.25) !important;
+  border-color: #8b5cf6 !important;
+}
+
+.glow-orange {
+  border-left: 3px solid #f97316 !important;
+  box-shadow: 0 0 15px rgba(249, 115, 22, 0.1) !important;
+}
+.glow-orange:hover {
+  box-shadow: 0 0 25px rgba(249, 115, 22, 0.25) !important;
+  border-color: #f97316 !important;
+}
+
+/* Custom animated circular progress ring styling */
+.progress-ring-circle {
+  transition: stroke-dashoffset 0.65s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+
+.hud-font-mono {
+  font-family: 'JetBrains Mono', 'Monaco', 'Consolas', monospace !important;
+  letter-spacing: 0.05em;
+}
+
+.cyber-panel-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: rgba(30, 41, 59, 0.3) !important;
+}
+
+.platform-distribution-bar {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+}

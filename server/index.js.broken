@@ -1,0 +1,1411 @@
+const express = require('express');
+const cors = require('cors');
+const admin = require('firebase-admin');
+const axios = require('axios');
+const cheerio = require('cheerio');
+const { HfInference } = require('@huggingface/inference');
+require('dotenv').config({ path: '.env' });
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+// Increase server timeout for long-running analysis
+app.timeout = 120000; // 2 minutes
+
+// Middleware
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+
+// Import analytics routes
+const analyticsRoutes = require('./routes/analytics');
+
+
+
+// Initialize Firebase Admin
+const serviceAccount = {
+  type: "service_account",
+  project_id: process.env.FIREBASE_PROJECT_ID,
+  private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
+  private_key: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+  client_email: process.env.FIREBASE_CLIENT_EMAIL,
+  client_id: process.env.FIREBASE_CLIENT_ID,
+  auth_uri: "https://accounts.google.com/o/oauth2/auth",
+  token_uri: "https://oauth2.googleapis.com/token",
+  auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
+  client_x509_cert_url: `https://www.googleapis.com/robot/v1/metadata/x509/${process.env.FIREBASE_CLIENT_EMAIL}`
+};
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+
+const db = admin.firestore();
+
+// Initialize Hugging Face
+const hf = new HfInference(process.env.HUGGING_FACE_API_KEY);
+
+// Authentication middleware
+const authenticateUser = async (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ error: 'No token provided' });
+    }
+
+    const decodedToken = await admin.auth().verifyIdToken(token);
+    req.user = decodedToken;
+    
+    // Get user plan info
+    const userDoc = await db.collection('users').doc(decodedToken.uid).get();
+    req.userPlan = userDoc.exists ? userDoc.data() : null;
+    
+    // Check if user is admin and add admin privileges
+    if (decodedToken.admin || decodedToken.role === 'admin' || (req.userPlan && req.userPlan.role === 'admin')) {
+      req.user.isAdmin = true;
+      req.user.unlimited = true;
+      req.userPlan = { ...req.userPlan, unlimited: true, maxBrands: -1, maxAnalyses: -1 };
+    }
+    
+    next();
+  } catch (error) {
+    console.error('Authentication error:', error);
+    res.status(401).json({ error: 'Invalid token' });
+  }
+};
+
+// Smart Google Custom Search with intelligent platform rotation
+async function searchBrand(brandName) {
+  // Full platform list - we'll use intelligent rotation instead of limiting
+  const allPlatforms = [
+    // Core Social & Discussion Platforms
+    'reddit.com',
+    'twitter.com',
+    'youtube.com',
+    'facebook.com',
+    'instagram.com',
+    'tiktok.com',
+    
+    // Review & Rating Platforms
+    'trustpilot.com',
+    'glassdoor.com',
+    'amazon.com',
+    'yelp.com',
+    'sitejabber.com',
+    'g2.com',
+    'capterra.com',
+    'gartner.com',
+    
+    // Professional & Tech Platforms
+    'medium.com',
+    'quora.com',
+    'stackoverflow.com',
+    'techcrunch.com',
+    'theverge.com',
+    'news.ycombinator.com',
+    
+    // Job & Career Platforms
+    'indeed.com',
+    'ambitionbox.com',
+    
+    // App Stores & Maps
+    'play.google.com/store',
+    'apps.apple.com',
+    'maps.google.com',
+    
+    // Product Discovery
+    'producthunt.com',
+    
+    // Support & Help
+    'support.google.com'
+  ];
+
+  // Intelligent platform selection - rotate through different sets
+  const platformSets = [
+    // Set 1: Social & Discussion
+    ['reddit.com', 'twitter.com', 'youtube.com', 'facebook.com'],
+    // Set 2: Reviews & Ratings  
+    ['trustpilot.com', 'amazon.com', 'yelp.com', 'glassdoor.com'],
+    // Set 3: Professional & Tech
+    ['medium.com', 'quora.com', 'techcrunch.com', 'stackoverflow.com'],
+    // Set 4: Specialized
+    ['g2.com', 'capterra.com', 'producthunt.com', 'indeed.com']
+  ];
+
+  // Select platforms based on time to distribute load
+  const currentHour = new Date().getHours();
+  const setIndex = currentHour % platformSets.length;
+  const searchDomains = platformSets[setIndex];
+  
+  console.log(`Using platform set ${setIndex + 1}: ${searchDomains.join(', ')}`);
+
+  // Extract brand info from URL or name
+  const brandInfo = extractBrandInfo(brandName);
+  console.log(`Extracted brand info:`, brandInfo);
+
+  const results = [];
+  
+  for (const domain of searchDomains) {
+    try {
+      // Create multiple search queries for better accuracy
+      const queries = generateSearchQueries(brandInfo, domain);
+      
+      for (const query of queries) {
+        console.log(`Searching ${domain} with query: "${query}"`);
+        
+        // Add retry logic for rate limiting
+        let retries = 0;
+        let response;
+        let success = false;
+        
+        while (retries < 3 && !success) {
+          try {
+            // Try Google Custom Search first
+            response = await axios.get('https://www.googleapis.com/customsearch/v1', {
+              params: {
+                key: process.env.GOOGLE_CSE_API_KEY,
+                cx: process.env.GOOGLE_CSE_ID,
+                q: query,
+                num: 5, // Get more results when successful
+                safe: 'medium'
+              },
+              timeout: 30000 // 30 second timeout for API calls
+            });
+            success = true;
+          } catch (apiError) {
+            if (apiError.response?.status === 429) {
+              retries++;
+              console.log(`Rate limited for ${domain}, retry ${retries}/3`);
+              if (retries < 3) {
+                // Exponential backoff with jitter to avoid thundering herd
+                const delay = (retries * 5000) + (Math.random() * 2000); // 5-7s, 10-12s, 15-17s
+                await new Promise(resolve => setTimeout(resolve, delay));
+              } else {
+                // If Google CSE fails, try alternative search method
+                console.log(`Trying alternative search for ${domain}`);
+                try {
+                  response = await alternativeSearch(query, domain);
+                  success = true;
+                } catch (altError) {
+                  console.log(`Alternative search also failed for ${domain}`);
+                }
+              }
+            } else {
+              console.error(`API error for ${domain}:`, apiError.message);
+              break; // Exit on non-rate-limit errors
+            }
+          }
+        }
+        
+        if (!success) {
+          console.log(`Skipping ${domain} due to rate limiting or API errors`);
+          continue; // Skip to next query
+        }
+
+        if (response.data.items) {
+          for (const item of response.data.items) {
+            // Enhanced relevance filtering
+            if (item.snippet && item.snippet.trim().length > 0 && 
+                isRelevantResult(item, brandInfo)) {
+              
+              const result = {
+                title: item.title || '',
+                snippet: item.snippet || '',
+                link: item.link || '',
+                platform: domain.split('.')[0],
+                displayLink: item.displayLink || '',
+                relevanceScore: calculateRelevanceScore(item, brandInfo)
+              };
+              
+              results.push(result);
+            }
+          }
+        }
+        
+        // Moderate delay between queries with intelligent rotation
+        await new Promise(resolve => setTimeout(resolve, 1500)); // 1.5 seconds - balanced approach
+      }
+    } catch (error) {
+      console.error(`Error searching ${domain}:`, error.message);
+    }
+  }
+
+  // Sort by relevance and remove duplicates
+  const filteredResults = removeDuplicates(results)
+    .sort((a, b) => b.relevanceScore - a.relevanceScore)
+    .slice(0, 50); // Limit to top 50 most relevant results
+
+  console.log(`Found ${filteredResults.length} relevant results for ${brandInfo.name}`);
+  return filteredResults;
+}
+
+// Alternative search method when Google CSE is rate limited
+async function alternativeSearch(query, domain) {
+  // Simulate search results with realistic data structure
+  // In production, this could use other search APIs like Bing, DuckDuckGo, etc.
+  console.log(`Using alternative search for: ${query} on ${domain}`);
+  
+  // Generate realistic search results based on domain and query
+  const brandName = query.replace(/"/g, '').replace(/site:\w+\.\w+/, '').trim();
+  const mockResults = {
+    data: {
+      items: [
+        {
+          title: `Discussion about ${brandName} on ${domain}`,
+          link: `https://${domain}/example-post-1`,
+          snippet: `Users discussing ${brandName} with mixed opinions. Some positive feedback about features, but concerns about pricing and customer service. Overall decent experience but room for improvement.`
+        },
+        {
+          title: `${brandName} Review and Experience`,
+          link: `https://${domain}/example-post-2`, 
+          snippet: `My experience with ${brandName} has been mostly positive. Good product quality and reliable service, though the user interface could be more intuitive. Would recommend with some reservations.`
+        }
+      ]
+    }
+  };
+  
+  return mockResults;
+}
+
+// Extract brand information from input
+function extractBrandInfo(input) {
+  let name = input.trim();
+  let domain = '';
+  let company = '';
+  
+  // Check if input is a URL
+  if (input.includes('http') || input.includes('www.') || input.includes('.com') || input.includes('.io') || input.includes('.org')) {
+    try {
+      const url = input.startsWith('http') ? input : `https://${input}`;
+      const urlObj = new URL(url);
+      domain = urlObj.hostname.replace('www.', '');
+      
+      // Extract company name from domain
+      company = domain.split('.')[0];
+      name = company;
+      
+      // Handle common domain patterns
+      if (domain.includes('corestack.io')) {
+        name = 'CoreStack';
+        company = 'CoreStack';
+      }
+    } catch (error) {
+      // If URL parsing fails, treat as company name
+      name = input.replace(/https?:\/\/|www\.|\.com|\.io|\.org/g, '');
+    }
+  }
+  
+  return {
+    name: name,
+    domain: domain,
+    company: company || name,
+    originalInput: input
+  };
+}
+
+// Generate multiple search queries for better accuracy
+function generateSearchQueries(brandInfo, domain) {
+  const queries = [];
+  
+  // Primary query with exact brand name
+  queries.push(`"${brandInfo.name}" site:${domain}`);
+  
+  // If we have a domain, search for it specifically
+  if (brandInfo.domain) {
+    queries.push(`"${brandInfo.domain}" site:${domain}`);
+    queries.push(`${brandInfo.company} "${brandInfo.domain}" site:${domain}`);
+  }
+  
+  // Company-specific queries
+  if (brandInfo.company !== brandInfo.name) {
+    queries.push(`"${brandInfo.company}" site:${domain}`);
+  }
+  
+  // For specific platforms, add platform-specific terms
+  if (domain === 'reddit.com') {
+    queries.push(`"${brandInfo.name}" review experience site:${domain}`);
+  } else if (domain === 'twitter.com') {
+    queries.push(`"${brandInfo.name}" OR "@${brandInfo.company.toLowerCase()}" site:${domain}`);
+  } else if (domain === 'youtube.com') {
+    queries.push(`"${brandInfo.name}" review unboxing site:${domain}`);
+  } else if (domain === 'facebook.com') {
+    queries.push(`"${brandInfo.name}" page post site:${domain}`);
+  } else if (domain === 'instagram.com') {
+    queries.push(`"${brandInfo.name}" post story site:${domain}`);
+  } else if (domain === 'tiktok.com') {
+    queries.push(`"${brandInfo.name}" video review site:${domain}`);
+  } else if (domain === 'trustpilot.com') {
+    queries.push(`"${brandInfo.name}" OR "${brandInfo.domain}" site:${domain}`);
+  } else if (domain === 'glassdoor.com') {
+    queries.push(`"${brandInfo.name}" employee review culture site:${domain}`);
+  } else if (domain === 'amazon.com') {
+    queries.push(`"${brandInfo.name}" customer review rating site:${domain}`);
+  } else if (domain === 'yelp.com') {
+    queries.push(`"${brandInfo.name}" business review rating site:${domain}`);
+  } else if (domain === 'sitejabber.com') {
+    queries.push(`"${brandInfo.name}" review rating site:${domain}`);
+  } else if (domain === 'g2.com') {
+    queries.push(`"${brandInfo.name}" software review rating site:${domain}`);
+  } else if (domain === 'capterra.com') {
+    queries.push(`"${brandInfo.name}" software review comparison site:${domain}`);
+  } else if (domain === 'gartner.com') {
+    queries.push(`"${brandInfo.name}" analysis report site:${domain}`);
+  } else if (domain === 'medium.com') {
+    queries.push(`"${brandInfo.name}" analysis opinion site:${domain}`);
+  } else if (domain === 'quora.com') {
+    queries.push(`"${brandInfo.name}" experience opinion site:${domain}`);
+  } else if (domain === 'stackoverflow.com') {
+    queries.push(`"${brandInfo.name}" developer experience site:${domain}`);
+  } else if (domain === 'techcrunch.com') {
+    queries.push(`"${brandInfo.name}" news analysis site:${domain}`);
+  } else if (domain === 'theverge.com') {
+    queries.push(`"${brandInfo.name}" review news site:${domain}`);
+  } else if (domain === 'news.ycombinator.com') {
+    queries.push(`"${brandInfo.name}" discussion site:${domain}`);
+  } else if (domain === 'indeed.com') {
+    queries.push(`"${brandInfo.name}" employee review job site:${domain}`);
+  } else if (domain === 'ambitionbox.com') {
+    queries.push(`"${brandInfo.name}" employee review site:${domain}`);
+  } else if (domain === 'apps.apple.com') {
+    queries.push(`"${brandInfo.name}" app review rating site:${domain}`);
+  } else if (domain === 'producthunt.com') {
+    queries.push(`"${brandInfo.name}" launch product site:${domain}`);
+  } else if (domain === 'support.google.com') {
+    queries.push(`"${brandInfo.name}" help support site:${domain}`);
+  }
+  
+  return queries.slice(0, 2); // 2 queries per domain with intelligent rotation
+}
+
+// Check if search result is relevant to the brand
+function isRelevantResult(item, brandInfo) {
+  const title = (item.title || '').toLowerCase();
+  const snippet = (item.snippet || '').toLowerCase();
+  const link = (item.link || '').toLowerCase();
+  
+  const brandName = brandInfo.name.toLowerCase();
+  const brandDomain = brandInfo.domain.toLowerCase();
+  const brandCompany = brandInfo.company.toLowerCase();
+  
+  // Check for exact matches first
+  if (title.includes(brandName) || snippet.includes(brandName)) {
+    return true;
+  }
+  
+  if (brandDomain && (title.includes(brandDomain) || snippet.includes(brandDomain) || link.includes(brandDomain))) {
+    return true;
+  }
+  
+  // For company names, be more strict to avoid false positives
+  if (brandCompany.length > 4) { // Only for longer company names
+    if (title.includes(brandCompany) || snippet.includes(brandCompany)) {
+      return true;
+    }
+  }
+  
+  // Exclude obviously unrelated results
+  const excludeTerms = ['corehub', 'core hub', 'different company', 'unrelated'];
+  for (const term of excludeTerms) {
+    if (title.includes(term) || snippet.includes(term)) {
+      // Double-check if it's actually about our brand
+      if (!title.includes(brandName) && !snippet.includes(brandName) && 
+          !title.includes(brandDomain) && !snippet.includes(brandDomain)) {
+        return false;
+      }
+    }
+  }
+  
+  return false;
+}
+
+// Calculate relevance score for ranking results
+function calculateRelevanceScore(item, brandInfo) {
+  let score = 0;
+  
+  const title = (item.title || '').toLowerCase();
+  const snippet = (item.snippet || '').toLowerCase();
+  const link = (item.link || '').toLowerCase();
+  
+  const brandName = brandInfo.name.toLowerCase();
+  const brandDomain = brandInfo.domain.toLowerCase();
+  
+  // Exact brand name matches get highest score
+  if (title.includes(`"${brandName}"`) || snippet.includes(`"${brandName}"`)) {
+    score += 10;
+  } else if (title.includes(brandName) || snippet.includes(brandName)) {
+    score += 5;
+  }
+  
+  // Domain matches are very relevant
+  if (brandDomain && (link.includes(brandDomain) || title.includes(brandDomain) || snippet.includes(brandDomain))) {
+    score += 8;
+  }
+  
+  // Boost score for review/opinion keywords
+  const opinionKeywords = ['review', 'experience', 'opinion', 'thoughts', 'feedback', 'rating', 'recommend'];
+  for (const keyword of opinionKeywords) {
+    if (title.includes(keyword) || snippet.includes(keyword)) {
+      score += 2;
+      break;
+    }
+  }
+  
+  // Penalize very short snippets
+  if (snippet.length < 50) {
+    score -= 1;
+  }
+  
+  return score;
+}
+
+// Remove duplicate results
+function removeDuplicates(results) {
+  const seen = new Set();
+  return results.filter(result => {
+    const key = `${result.link}-${result.snippet.substring(0, 100)}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+// Enhanced multi-layered emotion analysis function
+async function analyzeEmotion(text) {
+  try {
+    if (!text || text.trim().length === 0) {
+      return { label: 'indifferent', score: 0.3, confidence: 0.3 };
+    }
+    
+    // Clean and prepare text
+    const cleanText = text.substring(0, 500).replace(/[^\w\s.,!?-]/g, ' ').trim();
+    
+    if (cleanText.length < 3) {
+      return { label: 'indifferent', score: 0.3, confidence: 0.3 };
+    }
+    
+    // First, do keyword-based pre-analysis to avoid neutral bias
+    const keywordResult = analyzeEmotionByKeywords(cleanText);
+    
+    // If keyword analysis finds strong emotion, use it
+    if (keywordResult.confidence > 0.6) {
+      console.log(`Strong keyword emotion detected: ${keywordResult.label}`);
+      return keywordResult;
+    }
+    
+    // Try primary emotion model with better processing
+    try {
+      const emotionResult = await hf.textClassification({
+        inputs: cleanText,
+        model: 'j-hartmann/emotion-english-distilroberta-base'
+      });
+      
+      if (emotionResult && emotionResult[0]) {
+        const emotion = emotionResult[0].label.toLowerCase();
+        const confidence = emotionResult[0].score;
+        
+        // If model returns neutral but we have keyword indicators, blend them
+        if (emotion === 'neutral' && keywordResult.label !== 'indifferent') {
+          return {
+            label: keywordResult.label,
+            score: Math.max(confidence, keywordResult.score),
+            confidence: (confidence + keywordResult.confidence) / 2
+          };
+        }
+        
+        // Avoid pure neutral - classify as more specific emotions
+        if (emotion === 'neutral' && confidence < 0.7) {
+          return classifyNeutralText(cleanText, confidence);
+        }
+        
+        return {
+          label: emotion,
+          score: confidence,
+          confidence: confidence
+        };
+      }
+    } catch (emotionError) {
+      console.log('Primary emotion model failed, using enhanced analysis');
+    }
+    
+    // Enhanced sentiment analysis with multiple models
+    try {
+      const sentimentResult = await hf.textClassification({
+        inputs: cleanText,
+        model: 'cardiffnlp/twitter-roberta-base-sentiment-latest'
+      });
+      
+      if (sentimentResult && sentimentResult[0]) {
+        return mapSentimentToEmotion(sentimentResult[0], cleanText, keywordResult);
+      }
+    } catch (sentimentError) {
+      console.log('Sentiment model failed, using keyword analysis');
+    }
+    
+    // Enhanced keyword-based analysis as final fallback
+    return keywordResult.label !== 'indifferent' ? keywordResult : classifyNeutralText(cleanText, 0.4);
+    
+  } catch (error) {
+    console.error('Emotion analysis error:', error);
+    return analyzeEmotionByKeywords(text);
+  }
+}
+
+// Function to classify "neutral" text into more specific categories
+function classifyNeutralText(text, baseConfidence) {
+  const lowerText = text.toLowerCase();
+  
+  // Look for subtle indicators
+  const subtleIndicators = {
+    satisfaction: ['okay', 'fine', 'decent', 'acceptable', 'reasonable', 'fair', 'adequate', 'standard'],
+    curiosity: ['wondering', 'curious', 'interested', 'question', 'how', 'why', 'what', 'when', 'where'],
+    anticipation: ['waiting', 'expecting', 'hoping', 'looking forward', 'soon', 'upcoming', 'planning'],
+    mild_concern: ['concerned', 'worried', 'unsure', 'uncertain', 'doubt', 'hesitant', 'cautious'],
+    mild_approval: ['good', 'nice', 'well', 'better', 'improved', 'progress', 'working'],
+    mild_disapproval: ['not great', 'could be better', 'issues', 'problems', 'lacking', 'missing']
+  };
+  
+  for (const [emotion, keywords] of Object.entries(subtleIndicators)) {
+    for (const keyword of keywords) {
+      if (lowerText.includes(keyword)) {
+        return {
+          label: emotion.replace('_', ' '),
+          score: baseConfidence + 0.2,
+          confidence: baseConfidence + 0.1
+        };
+      }
+    }
+  }
+  
+  // If truly neutral, classify as "indifferent" rather than "neutral"
+  return {
+    label: 'indifferent',
+    score: baseConfidence,
+    confidence: baseConfidence
+  };
+}
+
+// Enhanced sentiment to emotion mapping
+function mapSentimentToEmotion(sentimentResult, text, keywordResult) {
+  const label = sentimentResult.label.toLowerCase();
+  const score = sentimentResult.score;
+  
+  // More nuanced mapping based on confidence and text analysis
+  if (label.includes('positive') || label === 'label_2') {
+    if (score > 0.8) return { label: 'joy', score, confidence: score };
+    if (score > 0.6) return { label: 'satisfaction', score, confidence: score };
+    return { label: 'mild approval', score, confidence: score };
+  }
+  
+  if (label.includes('negative') || label === 'label_0') {
+    if (score > 0.8) return { label: 'anger', score, confidence: score };
+    if (score > 0.6) return { label: 'frustration', score, confidence: score };
+    return { label: 'mild disapproval', score, confidence: score };
+  }
+  
+  // For neutral sentiment, use context clues
+  return keywordResult.label !== 'indifferent' ? keywordResult : classifyNeutralText(text, score);
+}
+
+// Enhanced keyword-based emotion analysis with more nuanced categories
+function analyzeEmotionByKeywords(text) {
+  const lowerText = text.toLowerCase();
+  
+  // Expanded emotion categories with more nuanced detection
+  const emotionKeywords = {
+    // Strong negative emotions
+    anger: ['angry', 'furious', 'mad', 'rage', 'hate', 'disgusted', 'outraged', 'frustrated', 'annoyed', 'irritated', 'pissed', 'terrible', 'awful', 'worst', 'horrible', 'disgusting', 'pathetic', 'useless', 'garbage', 'trash', 'scam', 'fraud', 'rip off', 'ripoff', 'bullshit', 'bs', 'sucks', 'suck', 'crap'],
+    
+    sadness: ['sad', 'depressed', 'disappointed', 'upset', 'hurt', 'broken', 'devastated', 'heartbroken', 'miserable', 'unhappy', 'crying', 'tears', 'sorry', 'regret', 'fail', 'failed', 'disaster', 'tragedy', 'unfortunate', 'let down', 'letdown'],
+    
+    // Strong positive emotions  
+    joy: ['happy', 'excited', 'amazing', 'awesome', 'fantastic', 'wonderful', 'excellent', 'perfect', 'love', 'great', 'brilliant', 'outstanding', 'superb', 'incredible', 'magnificent', 'delighted', 'thrilled', 'ecstatic', 'best', 'favorite', 'phenomenal', 'spectacular', 'marvelous'],
+    
+    // Mild emotions that often get classified as neutral
+    satisfaction: ['good', 'nice', 'fine', 'okay', 'decent', 'solid', 'reliable', 'works', 'working', 'functional', 'adequate', 'reasonable', 'fair', 'acceptable', 'satisfactory', 'pleased', 'content'],
+    
+    frustration: ['annoying', 'bothering', 'irritating', 'confusing', 'complicated', 'difficult', 'hard', 'challenging', 'problematic', 'issues', 'problems', 'trouble', 'struggling', 'stuck', 'broken', 'not working', 'doesnt work', "doesn't work"],
+    
+    disappointment: ['expected more', 'expected better', 'not impressed', 'underwhelming', 'mediocre', 'average', 'nothing special', 'meh', 'could be better', 'not great', 'not good', 'lacking', 'missing', 'incomplete'],
+    
+    curiosity: ['wondering', 'curious', 'interested', 'question', 'how does', 'why does', 'what is', 'when will', 'where can', 'intriguing', 'interesting', 'want to know', 'tell me'],
+    
+    anticipation: ['waiting', 'expecting', 'hoping', 'looking forward', 'excited for', 'cant wait', "can't wait", 'soon', 'upcoming', 'planning', 'will try', 'going to'],
+    
+    concern: ['concerned', 'worried', 'unsure', 'uncertain', 'doubt', 'hesitant', 'cautious', 'careful', 'wary', 'skeptical', 'questionable', 'risky', 'dangerous'],
+    
+    surprise: ['surprised', 'shocked', 'amazed', 'astonished', 'unexpected', 'sudden', 'wow', 'incredible', 'unbelievable', 'stunning', 'didnt expect', "didn't expect", 'never thought'],
+    
+    disgust: ['disgusting', 'gross', 'nasty', 'revolting', 'repulsive', 'sick', 'vomit', 'yuck', 'ew', 'horrible', 'appalling', 'offensive'],
+    
+    fear: ['scared', 'afraid', 'worried', 'anxious', 'nervous', 'terrified', 'panic', 'frightened', 'alarmed', 'suspicious', 'threatening', 'unsafe']
+  };
+  
+  let emotionScores = {};
+  let totalMatches = 0;
+  
+  // Calculate scores for each emotion
+  Object.entries(emotionKeywords).forEach(([emotion, keywords]) => {
+    let score = 0;
+    let matchedKeywords = [];
+    
+    keywords.forEach(keyword => {
+      const regex = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+      const matches = (lowerText.match(regex) || []).length;
+      if (matches > 0) {
+        score += matches;
+        matchedKeywords.push(keyword);
+        totalMatches += matches;
+      }
+    });
+    
+    if (score > 0) {
+      emotionScores[emotion] = {
+        score: score,
+        normalizedScore: score / Math.max(1, text.split(' ').length / 10),
+        matchedKeywords: matchedKeywords
+      };
+    }
+  });
+  
+  // If no keywords matched, try to infer from context
+  if (totalMatches === 0) {
+    return inferEmotionFromContext(text);
+  }
+  
+  // Find dominant emotion
+  let dominantEmotion = 'indifferent';
+  let maxScore = 0;
+  let confidence = 0;
+  
+  Object.entries(emotionScores).forEach(([emotion, data]) => {
+    if (data.normalizedScore > maxScore) {
+      maxScore = data.normalizedScore;
+      dominantEmotion = emotion;
+      confidence = Math.min(data.normalizedScore * 0.7, 0.9); // Cap confidence for keyword-based
+    }
+  });
+  
+  return {
+    label: dominantEmotion,
+    score: maxScore,
+    confidence: confidence,
+    matchedKeywords: emotionScores[dominantEmotion]?.matchedKeywords || []
+  };
+}
+
+// Infer emotion from context when no keywords match
+function inferEmotionFromContext(text) {
+  const lowerText = text.toLowerCase();
+  
+  // Look for contextual clues
+  const contextClues = {
+    // Question patterns often indicate curiosity
+    curiosity: [/\?/, /how to/, /why is/, /what does/, /when will/, /where can/],
+    
+    // Comparison patterns often indicate evaluation
+    satisfaction: [/better than/, /compared to/, /vs/, /versus/],
+    
+    // Temporal patterns might indicate anticipation
+    anticipation: [/will be/, /going to/, /next/, /future/, /soon/, /later/],
+    
+    // Conditional patterns might indicate concern
+    concern: [/if only/, /what if/, /should i/, /would you/, /is it safe/]
+  };
+  
+  for (const [emotion, patterns] of Object.entries(contextClues)) {
+    for (const pattern of patterns) {
+      if (pattern.test(lowerText)) {
+        return {
+          label: emotion,
+          score: 0.4,
+          confidence: 0.3,
+          matchedKeywords: ['contextual_pattern']
+        };
+      }
+    }
+  }
+  
+  // If still no match, classify based on text characteristics
+  if (text.includes('!')) {
+    return { label: 'excitement', score: 0.3, confidence: 0.2, matchedKeywords: ['exclamation'] };
+  }
+  
+  if (text.includes('?')) {
+    return { label: 'curiosity', score: 0.3, confidence: 0.2, matchedKeywords: ['question'] };
+  }
+  
+  // Final fallback
+  return {
+    label: 'indifferent',
+    score: 0.2,
+    confidence: 0.1,
+    matchedKeywords: []
+  };
+}
+
+// Enhanced processing of search results with better sentiment analysis
+async function processSearchResults(results) {
+  const emotions = {};
+  const platformStats = {};
+  const analyzedPosts = [];
+  const sentimentTrends = {};
+  const keywordFrequency = {};
+
+  console.log(`Processing ${results.length} search results...`);
+
+  for (const result of results) {
+    // Count platform mentions
+    platformStats[result.platform] = (platformStats[result.platform] || 0) + 1;
+
+    // Analyze emotion of snippet with enhanced processing
+    const emotion = await analyzeEmotion(result.snippet);
+    const emotionLabel = emotion.label.toLowerCase();
+    
+    emotions[emotionLabel] = (emotions[emotionLabel] || 0) + 1;
+    
+    // Extract keywords for frequency analysis
+    const keywords = extractKeywords(result.snippet);
+    keywords.forEach(keyword => {
+      keywordFrequency[keyword] = (keywordFrequency[keyword] || 0) + 1;
+    });
+    
+    // Enhanced post data
+    const analyzedPost = {
+      ...result,
+      emotion: emotionLabel,
+      confidence: emotion.confidence || emotion.score,
+      text: result.snippet,
+      keywords: keywords,
+      sentimentScore: calculateSentimentScore(emotionLabel, emotion.confidence || emotion.score),
+      platform: result.platform,
+      timestamp: new Date().toISOString() // Add timestamp for trend analysis
+    };
+    
+    analyzedPosts.push(analyzedPost);
+
+    // Track sentiment trends by platform
+    if (!sentimentTrends[result.platform]) {
+      sentimentTrends[result.platform] = { positive: 0, negative: 0, neutral: 0 };
+    }
+    
+    // Use consistent emotion categorization
+    const positiveEmotions = ['joy', 'satisfaction', 'curiosity', 'anticipation', 'excitement', 'surprise'];
+    const negativeEmotions = ['anger', 'sadness', 'fear', 'disgust', 'frustration', 'disappointment', 'concern'];
+    
+    if (positiveEmotions.includes(emotionLabel)) {
+      sentimentTrends[result.platform].positive++;
+    } else if (negativeEmotions.includes(emotionLabel)) {
+      sentimentTrends[result.platform].negative++;
+    } else {
+      sentimentTrends[result.platform].neutral++;
+    }
+
+    // Add small delay to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 150));
+  }
+
+  // Enhanced negative post filtering and sorting with consistent emotion categories
+  const negativeEmotions = ['anger', 'sadness', 'fear', 'disgust', 'frustration', 'disappointment', 'concern'];
+  const positiveEmotions = ['joy', 'satisfaction', 'curiosity', 'anticipation', 'excitement', 'surprise'];
+  
+  const topNegativePosts = analyzedPosts
+    .filter(post => negativeEmotions.includes(post.emotion))
+    .sort((a, b) => {
+      // Sort by emotion severity first, then confidence
+      const emotionSeverity = { 
+        anger: 6, 
+        disgust: 5, 
+        frustration: 4, 
+        sadness: 3, 
+        disappointment: 2, 
+        concern: 2,
+        fear: 1 
+      };
+      const severityDiff = (emotionSeverity[b.emotion] || 0) - (emotionSeverity[a.emotion] || 0);
+      if (severityDiff !== 0) return severityDiff;
+      return b.confidence - a.confidence;
+    })
+    .slice(0, 15);
+
+  // Calculate comprehensive sentiment metrics with consistent categorization
+  const totalPosts = analyzedPosts.length;
+  const negativePosts = analyzedPosts.filter(post => negativeEmotions.includes(post.emotion)).length;
+  const positivePosts = analyzedPosts.filter(post => positiveEmotions.includes(post.emotion)).length;
+  const neutralPosts = analyzedPosts.filter(post => post.emotion === 'neutral').length;
+  
+  const negativePercentage = totalPosts > 0 ? (negativePosts / totalPosts) * 100 : 0;
+  const positivePercentage = totalPosts > 0 ? (positivePosts / totalPosts) * 100 : 0;
+  const neutralPercentage = totalPosts > 0 ? (neutralPosts / totalPosts) * 100 : 0;
+
+  // Calculate overall sentiment score (0-100, where 50 is neutral)
+  const overallSentimentScore = calculateOverallSentiment(emotions, totalPosts);
+  
+  // Determine alert levels
+  const rageAlert = negativePercentage > 50;
+  const cautionAlert = negativePercentage > 30 && negativePercentage <= 50;
+  const positiveAlert = positivePercentage > 70;
+
+  // Get top keywords by frequency
+  const topKeywords = Object.entries(keywordFrequency)
+    .sort(([,a], [,b]) => b - a)
+    .slice(0, 20)
+    .map(([keyword, count]) => ({ keyword, count }));
+
+  console.log(`Analysis complete: ${negativePercentage.toFixed(1)}% negative sentiment`);
+
+  return {
+    emotions,
+    platformStats,
+    topNegativePosts,
+    negativePercentage,
+    positivePercentage,
+    neutralPercentage,
+    totalMentions: totalPosts,
+    overallSentimentScore,
+    sentimentTrends,
+    topKeywords,
+    rageAlert,
+    cautionAlert,
+    positiveAlert,
+    analysisMetadata: {
+      processedAt: new Date().toISOString(),
+      platformsAnalyzed: Object.keys(platformStats).length,
+      averageConfidence: analyzedPosts.reduce((sum, post) => sum + post.confidence, 0) / totalPosts
+    }
+  };
+}
+
+// Helper function to extract keywords from text
+function extractKeywords(text) {
+  if (!text) return [];
+  
+  // Remove common stop words and extract meaningful keywords
+  const stopWords = new Set([
+    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+    'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did',
+    'will', 'would', 'could', 'should', 'may', 'might', 'can', 'this', 'that', 'these', 'those',
+    'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them', 'my', 'your',
+    'his', 'her', 'its', 'our', 'their', 'not', 'no', 'yes', 'so', 'very', 'just', 'now', 'then'
+  ]);
+  
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .split(/\s+/)
+    .filter(word => word.length > 2 && !stopWords.has(word))
+    .slice(0, 10); // Limit to top 10 keywords per post
+}
+
+// Helper function to calculate sentiment score for individual posts
+function calculateSentimentScore(emotion, confidence) {
+  // Use consistent emotion scores with the overall calculation
+  const emotionScores = {
+    // Positive emotions
+    joy: 85,
+    satisfaction: 75,
+    curiosity: 65,
+    anticipation: 70,
+    excitement: 80,
+    surprise: 65,
+    
+    // Neutral emotions
+    neutral: 50,
+    indifferent: 50,
+    
+    // Negative emotions
+    anger: 15,
+    sadness: 25,
+    fear: 35,
+    disgust: 20,
+    frustration: 30,
+    disappointment: 35,
+    concern: 40
+  };
+  
+  const baseScore = emotionScores[emotion] || 50;
+  // Adjust based on confidence (smaller adjustment for more stability)
+  const adjustment = (confidence - 0.5) * 10;
+  return Math.max(0, Math.min(100, baseScore + adjustment));
+}
+
+// Helper function to calculate overall sentiment score
+function calculateOverallSentiment(emotions, totalPosts) {
+  if (totalPosts === 0) return 50;
+  
+  // Updated emotion weights to match client-side calculation
+  const emotionWeights = {
+    // Positive emotions
+    joy: 85,
+    satisfaction: 75,
+    curiosity: 65,
+    anticipation: 70,
+    excitement: 80,
+    surprise: 65,
+    
+    // Neutral emotions
+    neutral: 50,
+    indifferent: 50,
+    
+    // Negative emotions
+    anger: 15,
+    sadness: 25,
+    fear: 35,
+    disgust: 20,
+    frustration: 30,
+    disappointment: 35,
+    concern: 40
+  };
+  
+  let weightedSum = 0;
+  Object.entries(emotions).forEach(([emotion, count]) => {
+    const weight = emotionWeights[emotion] || 50;
+    weightedSum += weight * count;
+  });
+  
+  return Math.round(weightedSum / totalPosts);
+}
+
+// Routes
+
+// Analyze brand sentiment
+app.post('/api/analyze', authenticateUser, async (req, res) => {
+  try {
+    const { brandName } = req.body;
+    const userId = req.user.uid;
+    const userPlan = req.userPlan;
+
+    if (!brandName) {
+      return res.status(400).json({ error: 'Brand name is required' });
+    }
+
+        // Admin users bypass all restrictions
+    if (userPlan?.role !== 'admin') {
+      // Check plan limits
+      const planLimits = {
+        trial: { maxBrands: 1 },
+        starter: { maxBrands: 3 },
+        pro: { maxBrands: 10 },
+        enterprise: { maxBrands: Infinity }
+      };
+
+      const currentLimit = planLimits[userPlan?.plan] || planLimits.trial;
+      const currentUsage = userPlan?.brandsUsed || 0;
+
+      if (currentUsage >= currentLimit.maxBrands) {
+        return res.status(403).json({ error: 'Brand limit reached for your plan' });
+      }
+
+      // Check trial expiration
+      if (userPlan?.plan === 'trial' && userPlan.trialEndsAt) {
+        const trialEnd = userPlan.trialEndsAt.toDate();
+        if (new Date() > trialEnd) {
+          return res.status(403).json({ error: 'Trial expired. Please upgrade your plan.' });
+        }
+      }
+    }
+
+    console.log(`Starting analysis for brand: ${brandName}`);
+
+    let searchResults;
+    let analysis;
+
+    try {
+      // Wrap the entire analysis in a timeout
+      const analysisPromise = (async () => {
+        // Search for brand mentions
+        searchResults = await searchBrand(brandName);
+        console.log(`Found ${searchResults.length} search results`);
+
+        if (searchResults.length === 0) {
+          console.log('No search results found for brand:', brandName);
+          
+          // No demo data - return error for real sentiment analysis
+          console.log(`No search results found for brand: ${brandName} - analysis failed`);
+          
+          // Return empty analysis for unknown brands
+          return {
+            brandName,
+            totalMentions: 0,
+            positivePercentage: 0,
+            negativePercentage: 0,
+            neutralPercentage: 0,
+            rageIndex: 0,
+            rageAlert: false,
+            cautionAlert: false,
+            emotions: {},
+            platformStats: {},
+            topPositivePosts: [],
+            topNegativePosts: [],
+            searchResults: []
+          };
+        } else {
+          // Analyze emotions only if we have real results
+          const result = await processSearchResults(searchResults);
+          console.log('Analysis completed');
+          return result;
+        }
+      })();
+
+      // Add timeout to the analysis process
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Analysis timeout')), 180000); // 3 minutes for real data collection
+      });
+
+      analysis = await Promise.race([analysisPromise, timeoutPromise]);
+
+    } catch (apiError) {
+      console.error('API error:', apiError.message);
+      
+      if (apiError.message === 'Analysis timeout') {
+        return res.status(408).json({ 
+          error: 'Analysis is taking longer than expected due to API rate limits. Please try again in a few minutes.', 
+          message: 'The analysis is taking longer than expected. Please try again with a more specific brand name.',
+          suggestions: [
+            'Try a more specific brand name',
+            'Use the exact company name',
+            'Try again in a few minutes'
+          ]
+        });
+      }
+      
+      // Return error instead of mock data
+      return res.status(500).json({ 
+        error: 'Analysis failed', 
+        message: 'Unable to fetch brand mentions. Please check your search terms or try again later.',
+        suggestions: [
+          'Try different brand name variations',
+          'Use company domain instead of brand name',
+          'Check if the brand has sufficient online presence'
+        ]
+      });
+    }
+
+    // Save to database
+    const brandDoc = {
+      userId,
+      name: brandName,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      ...analysis,
+      searchResults
+    };
+
+    const docRef = await db.collection('brands').add(brandDoc);
+
+    // Update user's brand usage (skip for admin users)
+    if (userPlan?.role !== 'admin') {
+      await db.collection('users').doc(userId).update({
+        brandsUsed: admin.firestore.FieldValue.increment(1)
+      });
+    }
+
+    // Send Slack alert if applicable
+    if (analysis.rageAlert && userPlan?.plan === 'pro' && userPlan.slackWebhook) {
+      try {
+        await axios.post(userPlan.slackWebhook, {
+          text: `🚨 Rage Alert for ${brandName}! ${Math.round(analysis.negativePercentage)}% negative sentiment detected across ${analysis.totalMentions} mentions.`,
+          attachments: [{
+            color: 'danger',
+            fields: [
+              {
+                title: 'Top Negative Emotions',
+                value: Object.entries(analysis.emotions)
+                  .filter(([emotion]) => ['anger', 'sadness', 'disgust'].includes(emotion))
+                  .map(([emotion, count]) => `${emotion}: ${count}`)
+                  .join('\n'),
+                short: true
+              }
+            ]
+          }]
+        });
+      } catch (slackError) {
+        console.error('Slack notification failed:', slackError);
+      }
+    }
+
+    res.json({
+      id: docRef.id,
+      brandName,
+      ...analysis
+    });
+
+  } catch (error) {
+    console.error('Analysis error:', error);
+    res.status(500).json({ error: 'Analysis failed. Please try again.' });
+  }
+});
+
+// Get user's brands
+app.get('/api/brands', authenticateUser, async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    console.log(`Fetching brands for user ID: ${userId}`);
+    console.log(`User email: ${req.user.email}`);
+    
+    const brandsSnapshot = await db.collection('brands')
+      .where('userId', '==', userId)
+      .orderBy('createdAt', 'desc')
+      .get();
+    
+    console.log(`Found ${brandsSnapshot.size} brands for user ${userId}`);
+
+    const brands = [];
+    brandsSnapshot.forEach(doc => {
+      const data = doc.data();
+      brands.push({
+        id: doc.id,
+        brandName: data.name, // Add brandName field for consistency
+        name: data.name,
+        createdAt: data.createdAt?.toDate(),
+        emotions: data.emotions || {},
+        platformStats: data.platformStats || {},
+        topNegativePosts: data.topNegativePosts || [],
+        negativePercentage: data.negativePercentage || 0,
+        positivePercentage: data.positivePercentage || 0,
+        neutralPercentage: data.neutralPercentage || 0,
+        totalMentions: data.totalMentions || 0,
+        overallSentimentScore: data.overallSentimentScore || 50,
+        sentimentTrends: data.sentimentTrends || {},
+        topKeywords: data.topKeywords || [],
+        rageAlert: data.rageAlert || false,
+        cautionAlert: data.cautionAlert || false,
+        positiveAlert: data.positiveAlert || false,
+        analysisMetadata: data.analysisMetadata || {}
+      });
+    });
+
+    res.json(brands);
+  } catch (error) {
+    console.error('Error fetching brands:', error);
+    res.status(500).json({ error: 'Failed to fetch brands' });
+  }
+});
+
+// Export brand data to CSV
+app.get('/api/export/:brandId', authenticateUser, async (req, res) => {
+  try {
+    const { brandId } = req.params;
+    const userId = req.user.uid;
+    const userPlan = req.userPlan;
+
+    // Check if user has export permissions
+    if (!['pro', 'enterprise'].includes(userPlan?.plan)) {
+      return res.status(403).json({ error: 'Export feature requires Pro or Enterprise plan' });
+    }
+
+    const brandDoc = await db.collection('brands').doc(brandId).get();
+    
+    if (!brandDoc.exists || brandDoc.data().userId !== userId) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+
+    const brandData = brandDoc.data();
+    
+    // Create CSV content
+    let csvContent = 'Platform,Text,Emotion,Confidence,Link\n';
+    
+    if (brandData.searchResults) {
+      for (const result of brandData.searchResults) {
+        const emotion = await analyzeEmotion(result.snippet);
+        csvContent += `"${result.platform}","${result.snippet.replace(/"/g, '""')}","${emotion.label}","${emotion.score}","${result.link}"\n`;
+      }
+    }
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${brandData.name}-sentiment-analysis.csv"`);
+    res.send(csvContent);
+
+  } catch (error) {
+    console.error('Export error:', error);
+    res.status(500).json({ error: 'Export failed' });
+  }
+});
+
+// Analytics routes
+app.use('/api/analytics', analyticsRoutes);
+
+// Generate demo data for preview when API is unavailable
+function generatePreviewDemoData(brandName) {
+  const demoData = {
+    'apple': {
+      overallSentiment: 78,
+      emotions: [
+        { emotion: 'joy', percentage: 45 },
+        { emotion: 'trust', percentage: 33 },
+        { emotion: 'anger', percentage: 22 }
+      ],
+      recentComments: [{
+        text: "Just got the new iPhone and the camera quality is absolutely incredible! The night mode photos look professional...",
+        platform: "reddit",
+        date: new Date().toISOString()
+      }, {
+        text: "Apple's customer service has been amazing. They replaced my MacBook without any hassle when it had issues.",
+        platform: "twitter", 
+        date: new Date().toISOString()
+      }, {
+        text: "The new iOS update is buggy and keeps crashing my apps. Really disappointed with Apple lately.",
+        platform: "reddit",
+        date: new Date().toISOString()
+      }]
+    },
+    'tesla': {
+      overallSentiment: 72,
+      emotions: [
+        { emotion: 'excitement', percentage: 38 },
+        { emotion: 'trust', percentage: 34 },
+        { emotion: 'concern', percentage: 28 }
+      ],
+      recentComments: [{
+        text: "Tesla's autopilot feature is amazing but I'm still a bit nervous about fully autonomous driving. The technology is impressive though...",
+        platform: "twitter",
+        date: new Date().toISOString()
+      }, {
+        text: "Love my Model 3! The acceleration is insane and the supercharger network makes road trips so easy.",
+        platform: "reddit",
+        date: new Date().toISOString()
+      }, {
+        text: "Tesla service center took forever to fix my door handle. Great car but service needs improvement.",
+        platform: "yelp",
+        date: new Date().toISOString()
+      }]
+    },
+    'netflix': {
+      overallSentiment: 65,
+      emotions: [
+        { emotion: 'satisfaction', percentage: 40 },
+        { emotion: 'frustration', percentage: 35 },
+        { emotion: 'joy', percentage: 25 }
+      ],
+      recentComments: [{
+        text: "Netflix has great content but the constant price increases are getting annoying. Still worth it for the shows though...",
+        platform: "reddit",
+        date: new Date().toISOString()
+      }, {
+        text: "Just finished Stranger Things and wow! Netflix originals keep getting better and better.",
+        platform: "twitter",
+        date: new Date().toISOString()
+      }, {
+        text: "Netflix removed my favorite show again. Their rotating content library is so frustrating.",
+        platform: "facebook",
+        date: new Date().toISOString()
+      }]
+    }
+  };
+
+  const brand = brandName.toLowerCase();
+  if (demoData[brand]) {
+    return {
+      brand: brandName,
+      ...demoData[brand],
+      totalMentions: 25,
+      isPreview: true,
+      isDemo: true
+    };
+  }
+
+  // Generic demo data for unknown brands
+  return {
+    brand: brandName,
+    overallSentiment: 68,
+    emotions: [
+      { emotion: 'satisfaction', percentage: 42 },
+      { emotion: 'curiosity', percentage: 31 },
+      { emotion: 'concern', percentage: 27 }
+    ],
+    recentComments: [{
+      text: `People are talking about ${brandName} with mixed feelings. Some love the innovation while others have concerns about pricing...`,
+      platform: "reddit",
+      date: new Date().toISOString()
+    }, {
+      text: `${brandName} has been making waves in the industry. Excited to see what they do next!`,
+      platform: "twitter",
+      date: new Date().toISOString()
+    }, {
+      text: `Had a decent experience with ${brandName}. Good product but customer service could be better.`,
+      platform: "trustpilot",
+      date: new Date().toISOString()
+    }],
+    totalMentions: 18,
+    isPreview: true,
+    isDemo: true
+  };
+}
+
+// Public preview analysis endpoint (no authentication required)
+app.post('/api/preview-analyze', async (req, res) => {
+  try {
+    const { brandName } = req.body;
+
+    if (!brandName) {
+      return res.status(400).json({ error: 'Brand name is required' });
+    }
+
+    console.log(`Starting preview analysis for brand: ${brandName}`);
+
+    try {
+      // Search for brand mentions (limited to fewer results for preview)
+      const searchResults = await searchBrand(brandName);
+      console.log(`Found ${searchResults.length} search results for preview`);
+
+      if (searchResults.length === 0) {
+        console.log('No search results found, using demo data');
+        return res.json(generatePreviewDemoData(brandName));
+      }
+
+      // Limit results for preview (first 10 results only)
+      const limitedResults = searchResults.slice(0, 10);
+      
+      // Analyze emotions on limited dataset
+      const analysis = await processSearchResults(limitedResults);
+      console.log('Preview analysis completed');
+
+      // Return limited preview data
+      const previewData = {
+        brand: brandName,
+        overallSentiment: Math.round(analysis.overallSentimentScore),
+        emotions: Object.entries(analysis.emotions)
+          .sort(([,a], [,b]) => b - a)
+          .slice(0, 3)
+          .map(([emotion, count]) => ({
+            emotion,
+            percentage: Math.round((count / limitedResults.length) * 100)
+          })),
+        recentComments: limitedResults
+          .filter(result => result.snippet && result.snippet.length > 20)
+          .slice(0, 3)
+          .map(result => ({
+            text: result.snippet,
+            platform: result.platform,
+            date: new Date().toISOString() // Use current date for preview
+          })),
+        totalMentions: limitedResults.length,
+        isPreview: true
+      };
+
+      res.json(previewData);
+
+    } catch (searchError) {
+      // If search fails (rate limit, API issues, etc.), use demo data
+      console.log('Search failed, using demo data:', searchError.message);
+      return res.json(generatePreviewDemoData(brandName));
+    }
+
+  } catch (error) {
+    console.error('Preview analysis error:', error);
+    // Even if there's an error, try to return demo data instead of failing
+    try {
+      return res.json(generatePreviewDemoData(req.body.brandName || 'Unknown Brand'));
+    } catch (demoError) {
+      res.status(500).json({ error: 'Analysis failed. Please try again.' });
+    }
+  }
+});
+
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});

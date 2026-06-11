@@ -1,0 +1,22 @@
+{
+  "name": "rageradar",
+  "version": "1.0.0",
+  "description": "Know how your audience really feels — from Reddit to Product Hunt",
+  "main": "server/index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "cd server && npm run dev",
+    "client": "cd client && npm start",
+    "build": "cd client && npm run build",
+    "install-all": "npm install && cd server && npm install && cd ../client && npm install",
+    "test-config": "node scripts/testing/test-config.js"
+  },
+  "devDependencies": {
+    "concurrently": "^7.6.0"
+  },
+  "dependencies": {
+    "axios": "^1.11.0",
+    "dotenv": "^17.2.1",
+    "firebase-admin": "^13.4.0"
+  }
+}

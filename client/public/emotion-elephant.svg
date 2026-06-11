@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="body-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#1d4ed8" />
+    </linearGradient>
+    <filter id="glow" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Emotional background orbits -->
+  <circle cx="100" cy="100" r="85" fill="none" stroke="#e2e8f0" stroke-width="1.5" opacity="0.5" />
+  
+  <!-- Glowing colored emotion particles orbiting -->
+  <circle cx="35" cy="65" r="10" fill="#ef4444" filter="url(#glow)" opacity="0.8" /> <!-- Anger -->
+  <circle cx="165" cy="65" r="8" fill="#eab308" filter="url(#glow)" opacity="0.8" /> <!-- Joy -->
+  <circle cx="140" cy="155" r="9" fill="#a855f7" filter="url(#glow)" opacity="0.8" /> <!-- Confused -->
+  <circle cx="60" cy="150" r="7" fill="#3b82f6" filter="url(#glow)" opacity="0.8" /> <!-- Sadness -->
+
+  <!-- Elephant in Center -->
+  <g transform="translate(45, 40)">
+    <!-- Ears -->
+    <path d="M 25 50 C -10 25 5 -5 30 20 Z" fill="url(#body-grad)" opacity="0.8" />
+    <path d="M 85 50 C 120 25 105 -5 80 20 Z" fill="url(#body-grad)" opacity="0.8" />
+    
+    <!-- Head -->
+    <circle cx="55" cy="50" r="32" fill="url(#body-grad)" />
+    
+    <!-- Eyes -->
+    <circle cx="45" cy="45" r="4.5" fill="#fff" />
+    <circle cx="65" cy="45" r="4.5" fill="#fff" />
+    <circle cx="45" cy="45" r="2" fill="#1e293b" />
+    <circle cx="65" cy="45" r="2" fill="#1e293b" />
+    
+    <!-- Trunk -->
+    <path d="M 55 60 Q 55 80 43 80 Q 38 80 38 75" fill="none" stroke="url(#body-grad)" stroke-width="8" stroke-linecap="round" />
+  </g>
+</svg>

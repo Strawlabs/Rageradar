@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="body-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#1d4ed8" />
+    </linearGradient>
+    <linearGradient id="glass-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+  </defs>
+  
+  <circle cx="100" cy="100" r="85" fill="none" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="6 4" opacity="0.4" />
+  
+  <!-- Elephant with Magnifying Glass -->
+  <g transform="translate(45, 40)">
+    <!-- Ears -->
+    <path d="M 25 50 C -10 25 5 -5 30 20 Z" fill="url(#body-grad)" opacity="0.8" />
+    <path d="M 85 50 C 120 25 105 -5 80 20 Z" fill="url(#body-grad)" opacity="0.8" />
+    
+    <!-- Head -->
+    <circle cx="55" cy="50" r="32" fill="url(#body-grad)" />
+    
+    <!-- Eyes -->
+    <circle cx="45" cy="45" r="4.5" fill="#fff" />
+    <circle cx="65" cy="45" r="4.5" fill="#fff" />
+    <circle cx="45" cy="45" r="2" fill="#1e293b" />
+    <circle cx="65" cy="45" r="2" fill="#1e293b" />
+    
+    <!-- Trunk extending down & curved around glass handle -->
+    <path d="M 55 60 Q 55 85 70 85" fill="none" stroke="url(#body-grad)" stroke-width="10" stroke-linecap="round" />
+    
+    <!-- Magnifying Glass -->
+    <g transform="translate(45, 60)">
+      <!-- Handle -->
+      <line x1="25" y1="25" x2="42" y2="42" stroke="#64748b" stroke-width="6" stroke-linecap="round" />
+      <!-- Glass Frame -->
+      <circle cx="15" cy="15" r="20" fill="none" stroke="url(#glass-grad)" stroke-width="4" />
+      <!-- Glass Shimmer -->
+      <circle cx="15" cy="15" r="18" fill="url(#glass-grad)" opacity="0.3" />
+      <path d="M 5 10 A 13 13 0 0 1 25 10" fill="none" stroke="#fff" stroke-width="2" opacity="0.6" stroke-linecap="round" />
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,9 @@
+{
+  "ignore": [
+    "logs/*",
+    "tests/*",
+    "node_modules/*",
+    "*.log",
+    "*.json"
+  ]
+}
