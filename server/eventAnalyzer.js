@@ -3,13 +3,12 @@
  * Track emotional changes around specific events (launches, crises, announcements)
  */
 
-const admin = require('firebase-admin');
+const { supabase } = require('./supabase');
 const logger = require('./utils/logger');
 const RageIndexCalculator = require('./utils/rageIndexCalculator');
 
 class EventAnalyzer {
     constructor() {
-        this.db = admin.firestore();
         this.rageCalculator = new RageIndexCalculator();
 
         // Event type configurations
@@ -58,24 +57,24 @@ class EventAnalyzer {
             postEventEnd.setDate(eventDateTime.getDate() + (postEventDays || typeConfig.defaultPostDays));
 
             // Create event document
-            const event = {
-                brandId,
-                userId,
-                eventName,
-                eventDate: admin.firestore.Timestamp.fromDate(eventDateTime),
-                eventType,
+            const eventToSave = {
+                brand_id: brandId,
+                user_id: userId,
+                event_name: eventName,
+                event_date: eventDateTime.toISOString(),
+                event_type: eventType,
                 description: description || '',
 
                 // Time windows
-                preEventWindow: {
-                    startDate: admin.firestore.Timestamp.fromDate(preEventStart),
-                    endDate: admin.firestore.Timestamp.fromDate(eventDateTime),
+                pre_event_window: {
+                    startDate: preEventStart.toISOString(),
+                    endDate: eventDateTime.toISOString(),
                     days: preEventDays || typeConfig.defaultPreDays
                 },
 
-                postEventWindow: {
-                    startDate: admin.firestore.Timestamp.fromDate(eventDateTime),
-                    endDate: admin.firestore.Timestamp.fromDate(postEventEnd),
+                post_event_window: {
+                    startDate: eventDateTime.toISOString(),
+                    endDate: postEventEnd.toISOString(),
                     days: postEventDays || typeConfig.defaultPostDays
                 },
 
@@ -83,38 +82,48 @@ class EventAnalyzer {
                 status: 'pending', // pending, analyzing, complete, failed
 
                 // Metadata
-                color: typeConfig.color,
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                color: typeConfig.color
             };
 
-            // Save to Firestore
-            const eventRef = await this.db.collection('events').add(event);
+            // Save to Supabase
+            const { data: savedEvent, error: insertError } = await supabase
+                .from('events')
+                .insert(eventToSave)
+                .select()
+                .single();
+
+            if (insertError) throw insertError;
 
             logger.info('Event created', {
-                eventId: eventRef.id,
+                eventId: savedEvent.id,
                 eventName,
                 brandId,
                 eventType
             });
 
             // Trigger analysis
-            await this.analyzeEvent(eventRef.id);
+            await this.analyzeEvent(savedEvent.id);
 
             return {
-                eventId: eventRef.id,
-                ...event,
+                eventId: savedEvent.id,
+                brandId: savedEvent.brand_id,
+                userId: savedEvent.user_id,
+                eventName: savedEvent.event_name,
                 eventDate: eventDateTime,
+                eventType: savedEvent.event_type,
+                description: savedEvent.description,
                 preEventWindow: {
-                    ...event.preEventWindow,
                     startDate: preEventStart,
-                    endDate: eventDateTime
+                    endDate: eventDateTime,
+                    days: preEventDays || typeConfig.defaultPreDays
                 },
                 postEventWindow: {
-                    ...event.postEventWindow,
                     startDate: eventDateTime,
-                    endDate: postEventEnd
-                }
+                    endDate: postEventEnd,
+                    days: postEventDays || typeConfig.defaultPostDays
+                },
+                status: savedEvent.status,
+                color: savedEvent.color
             };
         } catch (error) {
             logger.error('Failed to create event', { error: error.message, eventData });
@@ -130,33 +139,42 @@ class EventAnalyzer {
     async analyzeEvent(eventId) {
         try {
             // Get event
-            const eventDoc = await this.db.collection('events').doc(eventId).get();
-            if (!eventDoc.exists) {
+            const { data: event, error: getError } = await supabase
+                .from('events')
+                .select('*')
+                .eq('id', eventId)
+                .single();
+
+            if (getError || !event) {
                 throw new Error('Event not found');
             }
 
-            const event = { id: eventDoc.id, ...eventDoc.data() };
-
             // Update status
-            await eventDoc.ref.update({ status: 'analyzing' });
+            await supabase
+                .from('events')
+                .update({ status: 'analyzing' })
+                .eq('id', eventId);
+
+            const preEventWindow = event.pre_event_window;
+            const postEventWindow = event.post_event_window;
 
             // Get brand mentions for each time period
             const preEventMentions = await this.getMentionsInWindow(
-                event.brandId,
-                event.preEventWindow.startDate.toDate(),
-                event.preEventWindow.endDate.toDate()
+                event.brand_id,
+                new Date(preEventWindow.startDate),
+                new Date(preEventWindow.endDate)
             );
 
             const duringEventMentions = await this.getMentionsInWindow(
-                event.brandId,
-                event.eventDate.toDate(),
-                new Date(event.eventDate.toDate().getTime() + 24 * 60 * 60 * 1000) // +1 day
+                event.brand_id,
+                new Date(event.event_date),
+                new Date(new Date(event.event_date).getTime() + 24 * 60 * 60 * 1000) // +1 day
             );
 
             const postEventMentions = await this.getMentionsInWindow(
-                event.brandId,
-                event.postEventWindow.startDate.toDate(),
-                event.postEventWindow.endDate.toDate()
+                event.brand_id,
+                new Date(postEventWindow.startDate),
+                new Date(postEventWindow.endDate)
             );
 
             // Calculate rage index for each period
@@ -204,8 +222,8 @@ class EventAnalyzer {
             // Save analysis results
             const analysisResults = {
                 preEventWindow: {
-                    startDate: event.preEventWindow.startDate,
-                    endDate: event.preEventWindow.endDate,
+                    startDate: preEventWindow.startDate,
+                    endDate: preEventWindow.endDate,
                     mentions: preEventMentions.length,
                     rageIndex: preEventAnalysis.rageIndex,
                     severity: preEventAnalysis.severity,
@@ -214,7 +232,7 @@ class EventAnalyzer {
                 },
 
                 duringEventWindow: {
-                    date: event.eventDate,
+                    date: event.event_date,
                     mentions: duringEventMentions.length,
                     rageIndex: duringEventAnalysis.rageIndex,
                     severity: duringEventAnalysis.severity,
@@ -223,8 +241,8 @@ class EventAnalyzer {
                 },
 
                 postEventWindow: {
-                    startDate: event.postEventWindow.startDate,
-                    endDate: event.postEventWindow.endDate,
+                    startDate: postEventWindow.startDate,
+                    endDate: postEventWindow.endDate,
                     mentions: postEventMentions.length,
                     rageIndex: postEventAnalysis.rageIndex,
                     severity: postEventAnalysis.severity,
@@ -246,16 +264,19 @@ class EventAnalyzer {
                 insights,
 
                 // Metadata
-                analyzedAt: admin.firestore.FieldValue.serverTimestamp(),
+                analyzedAt: new Date().toISOString(),
                 status: 'complete'
             };
 
             // Update event with analysis
-            await eventDoc.ref.update({
-                analysis: analysisResults,
-                status: 'complete',
-                updatedAt: admin.firestore.FieldValue.serverTimestamp()
-            });
+            await supabase
+                .from('events')
+                .update({
+                    analysis: analysisResults,
+                    status: 'complete',
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', eventId);
 
             logger.info('Event analysis complete', {
                 eventId,
@@ -268,11 +289,14 @@ class EventAnalyzer {
             logger.error('Event analysis failed', { error: error.message, eventId });
 
             // Update status to failed
-            await this.db.collection('events').doc(eventId).update({
-                status: 'failed',
-                error: error.message,
-                updatedAt: admin.firestore.FieldValue.serverTimestamp()
-            });
+            await supabase
+                .from('events')
+                .update({
+                    status: 'failed',
+                    error: error.message,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', eventId);
 
             throw error;
         }
@@ -287,20 +311,26 @@ class EventAnalyzer {
      */
     async getMentionsInWindow(brandId, startDate, endDate) {
         try {
-            const snapshot = await this.db.collection('analyses')
-                .where('brandId', '==', brandId)
-                .where('createdAt', '>=', admin.firestore.Timestamp.fromDate(startDate))
-                .where('createdAt', '<=', admin.firestore.Timestamp.fromDate(endDate))
-                .get();
+            const { data: analyses, error: queryError } = await supabase
+                .from('analyses')
+                .select('*')
+                .eq('brand_id', brandId)
+                .gte('created_at', startDate.toISOString())
+                .lte('created_at', endDate.toISOString());
+
+            if (queryError || !analyses) {
+                logger.error('Failed to get mentions', { error: queryError?.message, brandId });
+                return [];
+            }
 
             const mentions = [];
-            snapshot.forEach(doc => {
-                const data = doc.data();
-                if (data.mentions && Array.isArray(data.mentions)) {
-                    mentions.push(...data.mentions.map(m => ({
+            analyses.forEach(row => {
+                const list = row.search_results || row.mentions || [];
+                if (Array.isArray(list)) {
+                    mentions.push(...list.map(m => ({
                         ...m,
-                        analysisId: doc.id,
-                        timestamp: data.createdAt.toDate()
+                        analysisId: row.id,
+                        timestamp: row.created_at
                     })));
                 }
             });
@@ -461,11 +491,30 @@ class EventAnalyzer {
      * @returns {Promise<object>} Event data
      */
     async getEvent(eventId) {
-        const doc = await this.db.collection('events').doc(eventId).get();
-        if (!doc.exists) {
+        const { data: event, error } = await supabase
+            .from('events')
+            .select('*')
+            .eq('id', eventId)
+            .single();
+
+        if (error || !event) {
             throw new Error('Event not found');
         }
-        return { id: doc.id, ...doc.data() };
+
+        return {
+            id: event.id,
+            brandId: event.brand_id,
+            userId: event.user_id,
+            eventName: event.event_name,
+            eventDate: event.event_date,
+            eventType: event.event_type,
+            description: event.description,
+            preEventWindow: event.pre_event_window,
+            postEventWindow: event.post_event_window,
+            status: event.status,
+            color: event.color,
+            analysis: event.analysis
+        };
     }
 
     /**
@@ -475,16 +524,33 @@ class EventAnalyzer {
      * @returns {Promise<Array>} Events
      */
     async listBrandEvents(brandId, options = {}) {
-        let query = this.db.collection('events')
-            .where('brandId', '==', brandId)
-            .orderBy('eventDate', 'desc');
+        let q = supabase
+            .from('events')
+            .select('*')
+            .eq('brand_id', brandId)
+            .order('event_date', { ascending: false });
 
         if (options.limit) {
-            query = query.limit(options.limit);
+            q = q.limit(options.limit);
         }
 
-        const snapshot = await query.get();
-        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const { data: events, error } = await q;
+        if (error || !events) return [];
+
+        return events.map(event => ({
+            id: event.id,
+            brandId: event.brand_id,
+            userId: event.user_id,
+            eventName: event.event_name,
+            eventDate: event.event_date,
+            eventType: event.event_type,
+            description: event.description,
+            preEventWindow: event.pre_event_window,
+            postEventWindow: event.post_event_window,
+            status: event.status,
+            color: event.color,
+            analysis: event.analysis
+        }));
     }
 
     /**
@@ -523,7 +589,10 @@ class EventAnalyzer {
      * @returns {Promise<void>}
      */
     async deleteEvent(eventId) {
-        await this.db.collection('events').doc(eventId).delete();
+        await supabase
+            .from('events')
+            .delete()
+            .eq('id', eventId);
         logger.info('Event deleted', { eventId });
     }
 }

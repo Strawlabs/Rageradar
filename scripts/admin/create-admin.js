@@ -1,51 +1,36 @@
-const admin = require('firebase-admin');
-const path = require('path');
-
-// Initialize Firebase Admin
-const serviceAccount = require('./rageradar-d1830-firebase-adminsdk-fbsvc-9e5efed2e6.json');
-
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  databaseURL: "https://rageradar-d1830-default-rtdb.firebaseio.com"
-});
-
-const auth = admin.auth();
-const db = admin.firestore();
+/**
+ * Create Admin User Script (Supabase)
+ * Creates a new admin user with full privileges
+ * 
+ * Usage: node scripts/admin/create-admin.js
+ */
+const { supabase, isMockMode } = require('../_supabase');
 
 async function clearAllUsers() {
   try {
     console.log('🧹 Clearing all existing users...');
-    
-    // List all users
-    const listUsersResult = await auth.listUsers();
-    const users = listUsersResult.users;
-    
-    if (users.length === 0) {
+
+    const { data: users, error } = await supabase.from('users').select('id, email');
+
+    if (error) throw error;
+    if (!users || users.length === 0) {
       console.log('✅ No users found to delete');
       return;
     }
-    
-    // Delete all users
-    const deletePromises = users.map(user => auth.deleteUser(user.uid));
-    await Promise.all(deletePromises);
-    
-    console.log(`✅ Deleted ${users.length} users from Firebase Auth`);
-    
-    // Clear Firestore user documents
-    const usersSnapshot = await db.collection('users').get();
-    const batch = db.batch();
-    
-    usersSnapshot.docs.forEach(doc => {
-      batch.delete(doc.ref);
-    });
-    
-    if (!usersSnapshot.empty) {
-      await batch.commit();
-      console.log(`✅ Deleted ${usersSnapshot.docs.length} user documents from Firestore`);
+
+    for (const user of users) {
+      // Delete from auth (if not mock mode)
+      if (!isMockMode) {
+        await supabase.auth.admin.deleteUser(user.id);
+      }
     }
-    
+
+    // Delete all user rows (cascades to related tables)
+    await supabase.from('users').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+    console.log(`✅ Deleted ${users.length} users from Supabase`);
   } catch (error) {
-    console.error('❌ Error clearing users:', error);
+    console.error('❌ Error clearing users:', error.message || error);
   }
 }
 
@@ -55,77 +40,56 @@ async function createAdminUser() {
     
     const adminEmail = 'admin@rageradar.com';
     const adminPassword = 'RageRadar2025!';
-    
-    // Create admin user in Firebase Auth
-    const adminUser = await auth.createUser({
-      email: adminEmail,
-      password: adminPassword,
-      displayName: 'RageRadar Admin',
-      emailVerified: true
-    });
-    
-    console.log(`✅ Created admin user with UID: ${adminUser.uid}`);
-    
-    // Set custom claims for admin privileges
-    await auth.setCustomUserClaims(adminUser.uid, {
-      admin: true,
-      role: 'admin',
-      unlimited: true,
-      tier: 'enterprise'
-    });
-    
-    console.log('✅ Set admin custom claims');
-    
-    // Create admin user document in Firestore
+
+    let adminUid;
+
+    if (isMockMode) {
+      adminUid = 'mock-uid-admin-rageradar-com';
+      console.log(`✅ Created mock admin user with UID: ${adminUid}`);
+    } else {
+      // Create user in Supabase Auth
+      const { data, error } = await supabase.auth.admin.createUser({
+        email: adminEmail,
+        password: adminPassword,
+        email_confirm: true,
+        user_metadata: { firstName: 'Admin', lastName: 'User' }
+      });
+
+      if (error) throw error;
+      adminUid = data.user.id;
+      console.log(`✅ Created admin user with UID: ${adminUid}`);
+    }
+
+    // Create admin user document in database
     const adminData = {
-      uid: adminUser.uid,
+      id: adminUid,
       email: adminEmail,
-      firstName: 'Admin',
-      lastName: 'User',
-      companyName: 'RageRadar Inc.',
-      companyEmail: adminEmail,
-      contactNumber: '+1-555-ADMIN',
-      jobTitle: 'System Administrator',
-      companySize: '1000+',
-      role: 'admin', // This is the key field for RBAC
-      plan: 'enterprise', // Updated to match AuthContext expectations
-      tier: 'enterprise',
-      unlimited: true,
-      status: 'active',
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      lastLogin: admin.firestore.FieldValue.serverTimestamp(),
-      // Unlimited access settings
-      maxBrands: 'unlimited', // Changed to string for consistency
-      maxAnalyses: -1,
-      maxAlerts: -1,
-      brandsUsed: 0,
-      features: {
-        realTimeAlerts: true,
-        visualAnalytics: true,
-        csvExport: true,
-        slackIntegration: true,
-        apiAccess: true,
-        customReports: true,
-        whiteLabel: true,
-        prioritySupport: true,
-        userManagement: true,
-        blogManagement: true,
-        rbacSettings: true
-      }
+      first_name: 'Admin',
+      last_name: 'User',
+      company_name: 'RageRadar Inc.',
+      company_email: adminEmail,
+      contact_number: '+1-555-ADMIN',
+      job_title: 'System Administrator',
+      company_size: '1000+',
+      role: 'admin',
+      plan: 'enterprise',
+      max_brands: -1,
+      brands_used: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
     };
-    
-    await db.collection('users').doc(adminUser.uid).set(adminData);
-    
-    console.log('✅ Created admin user document in Firestore');
-    
+
+    await supabase.from('users').insert(adminData);
+
+    console.log('✅ Created admin user document in database');
+
     return {
       email: adminEmail,
       password: adminPassword,
-      uid: adminUser.uid
+      uid: adminUid
     };
-    
   } catch (error) {
-    console.error('❌ Error creating admin user:', error);
+    console.error('❌ Error creating admin user:', error.message || error);
     throw error;
   }
 }
@@ -134,12 +98,9 @@ async function main() {
   try {
     console.log('🚀 Starting admin setup process...\n');
     
-    // Clear all existing users
     await clearAllUsers();
+    console.log('');
     
-    console.log(''); // Empty line for readability
-    
-    // Create admin user
     const adminCredentials = await createAdminUser();
     
     console.log('\n🎉 Admin setup completed successfully!');
@@ -163,9 +124,8 @@ async function main() {
     console.log('• Priority support');
     
     console.log('\n⚠️  IMPORTANT: Save these credentials securely!');
-    
   } catch (error) {
-    console.error('❌ Setup failed:', error);
+    console.error('❌ Setup failed:', error.message || error);
   } finally {
     process.exit(0);
   }

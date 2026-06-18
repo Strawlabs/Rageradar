@@ -22,8 +22,8 @@ describe('Environment Validator', () => {
         expect(() => validateEnvironment()).not.toThrow();
     });
 
-    test('Should fail when FIREBASE_PROJECT_ID is missing', () => {
-        delete process.env.FIREBASE_PROJECT_ID;
+    test('Should fail when SUPABASE_URL is missing', () => {
+        delete process.env.SUPABASE_URL;
 
         // Mock process.exit to prevent test from exiting
         const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => { });
@@ -34,7 +34,8 @@ describe('Environment Validator', () => {
         mockExit.mockRestore();
     });
 
-    test('Should fail when STRIPE_SECRET_KEY is missing', () => {
+    test('Should fail when STRIPE_SECRET_KEY is missing in production', () => {
+        process.env.NODE_ENV = 'production';
         delete process.env.STRIPE_SECRET_KEY;
 
         const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => { });

@@ -1,5 +1,6 @@
 const cron = require('node-cron');
 const NotificationManager = require('./notificationManager');
+const { supabase } = require('../supabase');
 
 class NotificationScheduler {
   constructor() {
@@ -87,27 +88,38 @@ class NotificationScheduler {
    */
   async checkAllBrandsForRageSpikes() {
     try {
-      const admin = require('firebase-admin');
-      const db = admin.firestore();
-
-      // Get all brands
-      const brandsSnapshot = await db.collection('brands').get();
+      // Get all unique brand_ids from analyses
+      const { data: analyses, error } = await supabase
+        .from('analyses')
+        .select('brand_id, user_id, brand_name');
       
-      for (const brandDoc of brandsSnapshot.docs) {
-        const brandData = brandDoc.data();
-        const brandId = brandDoc.id;
+      const uniqueBrands = new Map();
+      if (analyses) {
+        analyses.forEach(row => {
+          if (row.brand_id) {
+            uniqueBrands.set(row.brand_id, {
+              id: row.brand_id,
+              userId: row.user_id,
+              name: row.brand_name
+            });
+          }
+        });
+      }
+      
+      for (const brand of uniqueBrands.values()) {
+        const brandId = brand.id;
 
-        // Get recent sentiment data for this brand
-        const recentAnalysisSnapshot = await db.collection('analysis')
-          .where('brandId', '==', brandId)
-          .orderBy('timestamp', 'desc')
-          .limit(2)
-          .get();
+        // Get 2 recent analyses for this brand
+        const { data: recentAnalyses, error: recentError } = await supabase
+          .from('analyses')
+          .select('weighted_sentiment_score')
+          .eq('brand_id', brandId)
+          .order('created_at', { ascending: false })
+          .limit(2);
 
-        if (recentAnalysisSnapshot.docs.length >= 2) {
-          const [current, previous] = recentAnalysisSnapshot.docs;
-          const currentSentiment = current.data().overallSentiment;
-          const previousSentiment = previous.data().overallSentiment;
+        if (recentAnalyses && recentAnalyses.length >= 2) {
+          const currentSentiment = recentAnalyses[0].weighted_sentiment_score;
+          const previousSentiment = recentAnalyses[1].weighted_sentiment_score;
 
           // Check for rage spike
           await this.notificationManager.checkRageSpikes(
@@ -127,17 +139,19 @@ class NotificationScheduler {
    */
   async sendDailySummaries() {
     try {
-      const admin = require('firebase-admin');
-      const db = admin.firestore();
+      const { data: users, error } = await supabase
+        .from('users')
+        .select('*');
 
-      // Get users with daily summaries enabled
-      const usersSnapshot = await db.collection('users')
-        .where('notifications.dailySummary.enabled', '==', true)
-        .get();
+      if (error || !users) return;
 
-      for (const userDoc of usersSnapshot.docs) {
-        const userData = userDoc.data();
-        const userId = userDoc.id;
+      const enabledUsers = users.filter(u => {
+        const prefs = u.notifications || { dailySummary: { enabled: true } };
+        return prefs.dailySummary?.enabled !== false;
+      });
+
+      for (const userData of enabledUsers) {
+        const userId = userData.id;
 
         try {
           // Generate daily summary data
@@ -169,40 +183,49 @@ class NotificationScheduler {
    * Generate daily summary data for a user
    */
   async generateDailySummaryData(userId) {
-    const admin = require('firebase-admin');
-    const db = admin.firestore();
-    
     const oneDayAgo = new Date();
     oneDayAgo.setDate(oneDayAgo.getDate() - 1);
 
-    // Get user's brands
-    const brandsSnapshot = await db.collection('brands')
-      .where('userId', '==', userId)
-      .get();
+    // Get user's unique brand names from analyses
+    const { data: analyses, error } = await supabase
+      .from('analyses')
+      .select('brand_id, brand_name')
+      .eq('user_id', userId);
+    
+    const uniqueBrands = [];
+    const seen = new Set();
+    if (analyses) {
+      analyses.forEach(row => {
+        if (row.brand_name && !seen.has(row.brand_name.toLowerCase())) {
+          seen.add(row.brand_name.toLowerCase());
+          uniqueBrands.push({
+            id: row.brand_id,
+            name: row.brand_name
+          });
+        }
+      });
+    }
 
     let totalMentions = 0;
     let totalSentiment = 0;
     let sentimentCount = 0;
 
-    for (const brandDoc of brandsSnapshot.docs) {
-      const brandId = brandDoc.id;
-
-      // Get mentions for this brand in the last day
-      const mentionsSnapshot = await db.collection('mentions')
-        .where('brandId', '==', brandId)
-        .where('timestamp', '>=', oneDayAgo)
-        .get();
-
-      const mentions = mentionsSnapshot.docs.map(doc => doc.data());
-      totalMentions += mentions.length;
-
-      // Calculate sentiment
-      mentions.forEach(mention => {
-        if (mention.score !== undefined) {
-          totalSentiment += mention.score;
+    for (const brand of uniqueBrands) {
+      // Get analyses for this brand in the last day
+      const { data: dailyAnalyses } = await supabase
+        .from('analyses')
+        .select('search_results, weighted_sentiment_score')
+        .eq('brand_id', brand.id)
+        .gte('created_at', oneDayAgo.toISOString());
+      
+      if (dailyAnalyses && dailyAnalyses.length > 0) {
+        dailyAnalyses.forEach(row => {
+          const list = row.search_results || [];
+          totalMentions += list.length;
+          totalSentiment += row.weighted_sentiment_score;
           sentimentCount++;
-        }
-      });
+        });
+      }
     }
 
     const avgSentiment = sentimentCount > 0 ? totalSentiment / sentimentCount : 0;

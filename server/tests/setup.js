@@ -5,9 +5,8 @@
 // Set test environment variables
 process.env.NODE_ENV = 'test';
 process.env.PORT = '5002'; // Different port for tests
-process.env.FIREBASE_PROJECT_ID = 'test-project';
-process.env.FIREBASE_PRIVATE_KEY = '-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n';
-process.env.FIREBASE_CLIENT_EMAIL = 'test@test.iam.gserviceaccount.com';
+process.env.SUPABASE_URL = 'https://example.supabase.co';
+process.env.SUPABASE_SERVICE_ROLE_KEY = 'sb_service_role_key_test';
 process.env.GOOGLE_CSE_API_KEY = 'test-api-key';
 process.env.GOOGLE_CSE_ID = 'test-search-id';
 process.env.HUGGING_FACE_API_KEY = 'test-hf-key';

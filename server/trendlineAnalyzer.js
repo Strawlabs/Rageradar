@@ -3,13 +3,13 @@
  * Track emotions and Rage Index over time
  */
 
-const admin = require('firebase-admin');
+const { supabase } = require('./supabase');
 const logger = require('./utils/logger');
 const RageIndexCalculator = require('./utils/rageIndexCalculator');
 
 class TrendlineAnalyzer {
     constructor() {
-        this.db = admin.firestore();
+        this.supabase = supabase;
         this.rageCalculator = new RageIndexCalculator();
     }
 
@@ -127,19 +127,25 @@ class TrendlineAnalyzer {
      * @returns {Promise<Array>} Mentions
      */
     async getMentionsInPeriod(brandId, startDate, endDate) {
-        const snapshot = await this.db.collection('analyses')
-            .where('brandId', '==', brandId)
-            .where('createdAt', '>=', admin.firestore.Timestamp.fromDate(startDate))
-            .where('createdAt', '<=', admin.firestore.Timestamp.fromDate(endDate))
-            .get();
+        const { data: analyses, error } = await this.supabase
+            .from('analyses')
+            .select('*')
+            .eq('brand_id', brandId)
+            .gte('created_at', startDate.toISOString())
+            .lte('created_at', endDate.toISOString());
+
+        if (error || !analyses) {
+            logger.error('Failed to get mentions', { error: error?.message, brandId });
+            return [];
+        }
 
         const mentions = [];
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            if (data.mentions && Array.isArray(data.mentions)) {
-                mentions.push(...data.mentions.map(m => ({
+        analyses.forEach(row => {
+            const list = row.search_results || row.mentions || [];
+            if (Array.isArray(list)) {
+                mentions.push(...list.map(m => ({
                     ...m,
-                    timestamp: data.createdAt.toDate()
+                    timestamp: new Date(row.created_at)
                 })));
             }
         });

@@ -261,8 +261,8 @@ const HelpCenter = ({ isOpen, onClose, context = 'general' }) => {
             <p>Integrate sentiment analysis into your applications:</p>
             
             <h4>🔑 Authentication</h4>
-            <p>All API requests require authentication using your Firebase token:</p>
-            <pre><code>Authorization: Bearer YOUR_FIREBASE_TOKEN</code></pre>
+            <p>All API requests require authentication using your Supabase access token:</p>
+            <pre><code>Authorization: Bearer YOUR_SUPABASE_TOKEN</code></pre>
             
             <h4>📊 Available Endpoints</h4>
             <ul>

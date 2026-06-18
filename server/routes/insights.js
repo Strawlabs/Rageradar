@@ -4,13 +4,12 @@
 
 const express = require('express');
 const router = express.Router();
-const admin = require('firebase-admin');
+const { supabase } = require('../supabase');
 const InsightsGenerator = require('../utils/insightsGenerator');
 const TrendlineAnalyzer = require('../trendlineAnalyzer');
 const ThemeExtractor = require('../utils/themeExtractor');
 const logger = require('../utils/logger');
 
-const db = admin.firestore();
 const insightsGenerator = new InsightsGenerator();
 const trendlineAnalyzer = new TrendlineAnalyzer();
 const themeExtractor = new ThemeExtractor();
@@ -22,8 +21,16 @@ const authenticateUser = async (req, res, next) => {
         if (!token) {
             return res.status(401).json({ error: 'No token provided' });
         }
-        const decodedToken = await admin.auth().verifyIdToken(token);
-        req.user = decodedToken;
+        const { data, error } = await supabase.auth.getUser(token);
+        if (error || !data.user) {
+            return res.status(401).json({ error: 'Invalid token' });
+        }
+        req.user = {
+            uid: data.user.id,
+            email: data.user.email,
+            role: data.user.role || 'user',
+            ...data.user
+        };
         next();
     } catch (error) {
         logger.error('Authentication error:', { error: error.message });
@@ -59,7 +66,6 @@ router.post('/generate', authenticateUser, async (req, res) => {
 
         // Get current and previous analyses if provided
         if (currentAnalysisId) {
-            // Fetch from database (simplified - you'll need to implement this)
             data.currentAnalysis = await getAnalysisById(currentAnalysisId);
         }
 
@@ -76,8 +82,9 @@ router.post('/generate', authenticateUser, async (req, res) => {
         }
 
         // Extract themes
-        if (includeThemes && data.currentAnalysis && data.currentAnalysis.mentions) {
-            data.themes = await themeExtractor.extractThemes(data.currentAnalysis.mentions);
+        const mentionsList = data.currentAnalysis ? (data.currentAnalysis.search_results || data.currentAnalysis.mentions) : null;
+        if (includeThemes && data.currentAnalysis && mentionsList) {
+            data.themes = await themeExtractor.extractThemes(mentionsList);
         }
 
         // Generate insights
@@ -181,28 +188,29 @@ router.get('/brands/:brandId', authenticateUser, async (req, res) => {
         const userId = req.user.uid;
 
         // Get latest analysis for this brand
-        const snapshot = await db.collection('analyses')
-            .where('userId', '==', userId)
-            .where('brandId', '==', brandId)
-            .orderBy('createdAt', 'desc')
-            .limit(1)
-            .get();
+        const { data: analyses, error } = await supabase
+            .from('analyses')
+            .select('*')
+            .eq('user_id', userId)
+            .eq('brand_id', brandId)
+            .order('created_at', { ascending: false })
+            .limit(1);
 
-        if (snapshot.empty) {
+        if (error || !analyses || analyses.length === 0) {
             return res.status(404).json({
                 error: 'No analysis found for this brand'
             });
         }
 
-        const analysis = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
+        const analysis = analyses[0];
 
         res.json({
             success: true,
             insights: analysis.insights || [],
             themes: analysis.themes || [],
-            trendlineSummary: analysis.trendlineSummary || null,
-            brandName: analysis.brandName,
-            lastUpdated: analysis.createdAt
+            trendlineSummary: analysis.trendline_summary || null,
+            brandName: analysis.brand_name,
+            lastUpdated: analysis.created_at
         });
 
     } catch (error) {
@@ -224,14 +232,15 @@ router.get('/brands/:brandId/themes', authenticateUser, async (req, res) => {
         const userId = req.user.uid;
 
         // Get all analyses for this brand
-        const snapshot = await db.collection('analyses')
-            .where('userId', '==', userId)
-            .where('brandId', '==', brandId)
-            .orderBy('createdAt', 'desc')
-            .limit(10)
-            .get();
+        const { data: analyses, error } = await supabase
+            .from('analyses')
+            .select('*')
+            .eq('user_id', userId)
+            .eq('brand_id', brandId)
+            .order('created_at', { ascending: false })
+            .limit(10);
 
-        if (snapshot.empty) {
+        if (error || !analyses || analyses.length === 0) {
             return res.status(404).json({
                 error: 'No analysis found for this brand'
             });
@@ -239,10 +248,9 @@ router.get('/brands/:brandId/themes', authenticateUser, async (req, res) => {
 
         // Aggregate themes from all analyses
         const allThemes = [];
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            if (data.themes && Array.isArray(data.themes)) {
-                allThemes.push(...data.themes);
+        analyses.forEach(row => {
+            if (row.themes && Array.isArray(row.themes)) {
+                allThemes.push(...row.themes);
             }
         });
 
@@ -281,11 +289,16 @@ router.get('/brands/:brandId/themes', authenticateUser, async (req, res) => {
 // Helper function to get analysis by ID
 async function getAnalysisById(analysisId) {
     try {
-        const doc = await db.collection('analyses').doc(analysisId).get();
-        if (!doc.exists) {
+        const { data, error } = await supabase
+            .from('analyses')
+            .select('*')
+            .eq('id', analysisId)
+            .single();
+
+        if (error || !data) {
             return null;
         }
-        return { id: doc.id, ...doc.data() };
+        return data;
     } catch (error) {
         logger.error('Failed to get analysis by ID', { error: error.message, analysisId });
         return null;

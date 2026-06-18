@@ -1,10 +1,10 @@
 const EmailService = require('./emailService');
-const admin = require('firebase-admin');
+const { supabase } = require('../supabase');
 
 class NotificationManager {
   constructor() {
     this.emailService = new EmailService();
-    this.db = admin.firestore();
+    this.supabase = supabase;
   }
 
   /**
@@ -22,34 +22,50 @@ class NotificationManager {
       if (changePercent <= RAGE_THRESHOLD) {
         console.log(`🚨 Rage spike detected for brand ${brandId}: ${changePercent.toFixed(1)}% drop`);
         
-        // Get brand details and user email
-        const brandDoc = await this.db.collection('brands').doc(brandId).get();
-        if (!brandDoc.exists) return;
+        // Get brand details (derived from analyses)
+        const { data: analyses, error: brandError } = await this.supabase
+          .from('analyses')
+          .select('user_id, brand_name')
+          .eq('brand_id', brandId)
+          .limit(1);
+
+        if (brandError || !analyses || analyses.length === 0) return;
         
-        const brandData = brandDoc.data();
+        const brandData = {
+          userId: analyses[0].user_id,
+          name: analyses[0].brand_name
+        };
         const userId = brandData.userId;
         
         // Get user notification preferences
-        const userDoc = await this.db.collection('users').doc(userId).get();
-        if (!userDoc.exists) return;
-        
-        const userData = userDoc.data();
+        const { data: userData, error: userError } = await this.supabase
+          .from('users')
+          .select('*')
+          .eq('id', userId)
+          .single();
+
+        if (userError || !userData) return;
         
         // Check if user has rage alerts enabled
-        if (!userData.notifications?.rageAlerts?.enabled) {
+        const prefs = userData.notifications || { rageAlerts: { enabled: true } };
+        if (prefs.rageAlerts?.enabled === false) {
           console.log('User has rage alerts disabled');
           return;
         }
         
-        // Get recent negative mentions
-        const mentionsSnapshot = await this.db.collection('mentions')
-          .where('brandId', '==', brandId)
-          .where('sentiment', '==', 'negative')
-          .orderBy('timestamp', 'desc')
-          .limit(5)
-          .get();
+        // Get recent negative mentions from latest analysis
+        const { data: latestAnalyses } = await this.supabase
+          .from('analyses')
+          .select('search_results')
+          .eq('brand_id', brandId)
+          .order('created_at', { ascending: false })
+          .limit(1);
         
-        const mentions = mentionsSnapshot.docs.map(doc => doc.data());
+        let mentions = [];
+        if (latestAnalyses && latestAnalyses.length > 0) {
+          const list = latestAnalyses[0].search_results || [];
+          mentions = list.filter(m => m.sentiment === 'negative').slice(0, 5);
+        }
         
         // Send rage spike alert
         const result = await this.emailService.sendRageSpikeAlert(
@@ -84,16 +100,23 @@ class NotificationManager {
     try {
       console.log('📊 Sending weekly reports...');
       
-      // Get all users with weekly reports enabled
-      const usersSnapshot = await this.db.collection('users')
-        .where('notifications.weeklyReports.enabled', '==', true)
-        .get();
+      // Get all users
+      const { data: users, error } = await this.supabase
+        .from('users')
+        .select('*');
+
+      if (error || !users) return [];
+      
+      // Filter users with weekly reports enabled
+      const enabledUsers = users.filter(u => {
+        const prefs = u.notifications || { weeklyReports: { enabled: true } };
+        return prefs.weeklyReports?.enabled !== false;
+      });
       
       const results = [];
       
-      for (const userDoc of usersSnapshot.docs) {
-        const userData = userDoc.data();
-        const userId = userDoc.id;
+      for (const userData of enabledUsers) {
+        const userId = userData.id;
         
         try {
           // Generate report data for this user
@@ -134,20 +157,32 @@ class NotificationManager {
   async sendNewMentionAlert(brandId, mention) {
     try {
       // Get brand details
-      const brandDoc = await this.db.collection('brands').doc(brandId).get();
-      if (!brandDoc.exists) return;
+      const { data: analyses, error: brandError } = await this.supabase
+        .from('analyses')
+        .select('user_id, brand_name')
+        .eq('brand_id', brandId)
+        .limit(1);
+
+      if (brandError || !analyses || analyses.length === 0) return;
       
-      const brandData = brandDoc.data();
+      const brandData = {
+        userId: analyses[0].user_id,
+        name: analyses[0].brand_name
+      };
       const userId = brandData.userId;
       
       // Get user notification preferences
-      const userDoc = await this.db.collection('users').doc(userId).get();
-      if (!userDoc.exists) return;
-      
-      const userData = userDoc.data();
+      const { data: userData, error: userError } = await this.supabase
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (userError || !userData) return;
       
       // Check if user has mention alerts enabled
-      if (!userData.notifications?.mentionAlerts?.enabled) {
+      const prefs = userData.notifications || { mentionAlerts: { enabled: true } };
+      if (prefs.mentionAlerts?.enabled === false) {
         console.log('User has mention alerts disabled');
         return;
       }
@@ -214,14 +249,16 @@ class NotificationManager {
       );
       
       if (result.success) {
-        // Log without userId since we might not have it during password reset
-        await this.db.collection('notifications').add({
-          email: userEmail,
-          type: 'password_reset',
-          data: { resetLink, emailId: result.data.id },
-          timestamp: admin.firestore.FieldValue.serverTimestamp(),
-          sent: true
-        });
+        await this.supabase
+          .from('notifications')
+          .insert({
+            user_id: null,
+            title: 'Password Reset Sent',
+            message: `Password reset email sent to ${userEmail}.`,
+            type: 'password_reset',
+            read: false,
+            created_at: new Date().toISOString()
+          });
       }
       
       return result;
@@ -237,10 +274,13 @@ class NotificationManager {
   async sendSystemNotification(userId, type, message, details = {}) {
     try {
       // Get user email
-      const userDoc = await this.db.collection('users').doc(userId).get();
-      if (!userDoc.exists) return;
-      
-      const userData = userDoc.data();
+      const { data: userData, error: userError } = await this.supabase
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (userError || !userData) return;
       
       const result = await this.emailService.sendSystemNotification(
         userData.email,
@@ -271,41 +311,51 @@ class NotificationManager {
     const oneWeekAgo = new Date();
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
     
-    // Get user's brands
-    const brandsSnapshot = await this.db.collection('brands')
-      .where('userId', '==', userId)
-      .get();
+    // Get user's unique brand names from analyses
+    const { data: analyses, error } = await this.supabase
+      .from('analyses')
+      .select('brand_id, brand_name')
+      .eq('user_id', userId);
+    
+    const uniqueBrands = [];
+    const seen = new Set();
+    if (analyses) {
+      analyses.forEach(row => {
+        if (row.brand_name && !seen.has(row.brand_name.toLowerCase())) {
+          seen.add(row.brand_name.toLowerCase());
+          uniqueBrands.push({
+            id: row.brand_id,
+            name: row.brand_name
+          });
+        }
+      });
+    }
     
     const brands = [];
     let totalMentions = 0;
     let totalSentiment = 0;
     let sentimentCount = 0;
     
-    for (const brandDoc of brandsSnapshot.docs) {
-      const brandData = brandDoc.data();
-      const brandId = brandDoc.id;
+    for (const brand of uniqueBrands) {
+      // Get analyses for this brand in the last week
+      const { data: weeklyAnalyses } = await this.supabase
+        .from('analyses')
+        .select('search_results, weighted_sentiment_score')
+        .eq('brand_id', brand.id)
+        .gte('created_at', oneWeekAgo.toISOString());
       
-      // Get mentions for this brand in the last week
-      const mentionsSnapshot = await this.db.collection('mentions')
-        .where('brandId', '==', brandId)
-        .where('timestamp', '>=', oneWeekAgo)
-        .get();
-      
-      const mentions = mentionsSnapshot.docs.map(doc => doc.data());
-      const brandMentions = mentions.length;
-      
-      // Calculate average sentiment for this brand
+      let brandMentions = 0;
       let brandSentiment = 0;
-      if (mentions.length > 0) {
-        const sentimentSum = mentions.reduce((sum, mention) => {
-          const score = mention.score || 0;
-          return sum + score;
-        }, 0);
-        brandSentiment = sentimentSum / mentions.length;
+      if (weeklyAnalyses && weeklyAnalyses.length > 0) {
+        weeklyAnalyses.forEach(row => {
+          brandMentions += (row.search_results || []).length;
+          brandSentiment += row.weighted_sentiment_score;
+        });
+        brandSentiment = brandSentiment / weeklyAnalyses.length;
       }
       
       brands.push({
-        name: brandData.name,
+        name: brand.name,
         mentions: brandMentions,
         sentiment: brandSentiment
       });
@@ -337,13 +387,35 @@ class NotificationManager {
    */
   async logNotification(userId, type, data) {
     try {
-      await this.db.collection('notifications').add({
-        userId,
-        type,
-        data,
-        timestamp: admin.firestore.FieldValue.serverTimestamp(),
-        sent: true
-      });
+      let title = 'Notification';
+      let message = '';
+      if (type === 'rage_spike') {
+        title = 'Rage Spike Alert';
+        message = `Rage spike detected for brand: ${data.brandName || ''}.`;
+      } else if (type === 'weekly_report') {
+        title = 'Weekly Report Ready';
+        message = `Weekly report for ${data.reportData?.weekRange || ''} is ready.`;
+      } else if (type === 'new_mention') {
+        title = 'New Negative Mention';
+        message = `New critical mention detected for brand: ${data.brandName || ''}.`;
+      } else if (type === 'welcome') {
+        title = 'Welcome to RageRadar';
+        message = 'Thank you for signing up for RageRadar!';
+      } else {
+        title = 'System Notification';
+        message = data.message || 'System alert';
+      }
+
+      await this.supabase
+        .from('notifications')
+        .insert({
+          user_id: userId,
+          title,
+          message,
+          type,
+          read: false,
+          created_at: new Date().toISOString()
+        });
     } catch (error) {
       console.error('Error logging notification:', error);
     }
@@ -354,10 +426,13 @@ class NotificationManager {
    */
   async getUserNotificationPreferences(userId) {
     try {
-      const userDoc = await this.db.collection('users').doc(userId).get();
-      if (!userDoc.exists) return null;
-      
-      const userData = userDoc.data();
+      const { data: userData, error } = await this.supabase
+        .from('users')
+        .select('notifications')
+        .eq('id', userId)
+        .single();
+
+      if (error || !userData) return null;
       return userData.notifications || {
         rageAlerts: { enabled: true },
         weeklyReports: { enabled: true },
@@ -375,10 +450,15 @@ class NotificationManager {
    */
   async updateUserNotificationPreferences(userId, preferences) {
     try {
-      await this.db.collection('users').doc(userId).update({
-        notifications: preferences,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-      });
+      const { error } = await this.supabase
+        .from('users')
+        .update({
+          notifications: preferences,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId);
+      
+      if (error) throw error;
       
       console.log(`✅ Updated notification preferences for user ${userId}`);
       return { success: true };

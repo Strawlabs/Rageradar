@@ -225,7 +225,7 @@ const EventTracker = ({ brandId, onEventCreated }) => {
 
 // Helper functions (implement based on your auth setup)
 const getAuthToken = async () => {
-    // Return Firebase auth token
+    // Return Supabase auth token
     return localStorage.getItem('authToken');
 };
 

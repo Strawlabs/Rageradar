@@ -2,7 +2,7 @@ require('dotenv').config({ path: '.env' });
 
 const express = require('express');
 const cors = require('cors');
-const admin = require('firebase-admin');
+const { supabase, isMockMode } = require('./supabase');
 const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STRIPE_SECRET_KEY) : null;
 
 // Initialize logger first (before any other imports that might use it)
@@ -62,85 +62,9 @@ app.use(express.json({ limit: '10mb' }));
 
 
 
-// Initialize Firebase Admin
-const serviceAccount = {
-  type: "service_account",
-  project_id: process.env.FIREBASE_PROJECT_ID,
-  private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
-  private_key: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-  client_email: process.env.FIREBASE_CLIENT_EMAIL,
-  client_id: process.env.FIREBASE_CLIENT_ID,
-  auth_uri: "https://accounts.google.com/o/oauth2/auth",
-  token_uri: "https://oauth2.googleapis.com/token",
-  auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
-  client_x509_cert_url: `https://www.googleapis.com/robot/v1/metadata/x509/${process.env.FIREBASE_CLIENT_EMAIL}`
-};
-
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
-});
-
-// Check if using local mock mode
-const isMockMode = process.env.FIREBASE_PROJECT_ID === 'your_project_id' || !process.env.FIREBASE_PROJECT_ID;
-
 if (isMockMode) {
-  logger.info('⚠️ RUNNING IN LOCAL MOCK MODE (No real Firebase credentials provided)');
-  const MockDb = require('./utils/mockDb');
-  const mockDbInstance = new MockDb();
-  
-  // Monkey patch admin.firestore
-  Object.defineProperty(admin, 'firestore', {
-    value: function() {
-      return mockDbInstance;
-    },
-    configurable: true
-  });
-  admin.firestore.FieldValue = {
-    serverTimestamp: () => 'SERVER_TIMESTAMP_SENTINEL'
-  };
-
-  // Monkey patch admin.auth
-  const mockAuthInstance = {
-    verifyIdToken: async (token) => {
-      if (token && (token.startsWith('mock-token-') || token === 'mock-token')) {
-        const email = token === 'mock-token' ? 'admin@rageradar.com' : token.replace('mock-token-', '');
-        const uid = 'mock-uid-' + email.replace(/[@.]/g, '-');
-        return {
-          uid,
-          email,
-          role: email === 'admin@rageradar.com' ? 'admin' : 'user',
-          admin: email === 'admin@rageradar.com',
-          email_verified: true
-        };
-      }
-      throw new Error('Invalid token in mock mode');
-    },
-    getUserByEmail: async (email) => {
-      const uid = 'mock-uid-' + email.replace(/[@.]/g, '-');
-      return { uid, email };
-    },
-    createUser: async (properties) => {
-      const uid = 'mock-uid-' + properties.email.replace(/[@.]/g, '-');
-      return { uid, ...properties };
-    },
-    updateUser: async (uid, properties) => {
-      return { uid, ...properties };
-    },
-    deleteUser: async (uid) => {
-      return true;
-    }
-  };
-
-  Object.defineProperty(admin, 'auth', {
-    value: function() {
-      return mockAuthInstance;
-    },
-    configurable: true
-  });
+  logger.info('⚠️ RUNNING IN LOCAL MOCK MODE (No real Supabase credentials provided)');
 }
-
-const db = admin.firestore();
-
 // Initialize search components
 const searchEngine = new SearchEngine();
 const sentimentAnalyzer = new SentimentAnalyzer();
@@ -158,8 +82,17 @@ const authenticateUser = async (req, res, next) => {
       return res.status(401).json({ error: 'No token provided' });
     }
 
-    const decodedToken = await admin.auth().verifyIdToken(token);
-    req.user = decodedToken;
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data.user) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    req.user = {
+      uid: data.user.id,
+      email: data.user.email,
+      role: data.user.role || 'user',
+      ...data.user
+    };
     next();
   } catch (error) {
     console.error('Authentication error:', error);
@@ -172,27 +105,58 @@ const checkUserPlan = async (req, res, next) => {
   try {
     const userId = req.user.uid;
 
-    // Get user plan from Firestore
-    const userDoc = await db.collection('users').doc(userId).get();
+    // Get user plan from Supabase
+    const { data: userRow, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single();
 
-    if (!userDoc.exists) {
+    let userData;
+    if (userError || !userRow) {
       // Create default trial plan if user doesn't exist
       const defaultPlan = {
+        id: userId,
         email: req.user.email || '',
         plan: 'trial',
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        trialEndsAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
-        brandsUsed: 0,
-        maxBrands: 1,
-        role: 'user'
+        role: 'user',
+        brands_used: 0,
+        max_brands: 1,
+        trial_ends_at: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString()
       };
 
-      await db.collection('users').doc(userId).set(defaultPlan);
-      req.userPlan = defaultPlan;
-      return next();
+      const { data: newRow, error: insertError } = await supabase
+        .from('users')
+        .insert(defaultPlan)
+        .select()
+        .single();
+      
+      userData = newRow ? {
+        plan: newRow.plan,
+        maxBrands: newRow.max_brands,
+        brandsUsed: newRow.brands_used,
+        trialEndsAt: newRow.trial_ends_at,
+        role: newRow.role,
+        email: newRow.email
+      } : {
+        plan: 'trial',
+        maxBrands: 1,
+        brandsUsed: 0,
+        trialEndsAt: defaultPlan.trial_ends_at,
+        role: 'user',
+        email: defaultPlan.email
+      };
+    } else {
+      userData = {
+        plan: userRow.plan,
+        maxBrands: userRow.max_brands,
+        brandsUsed: userRow.brands_used,
+        trialEndsAt: userRow.trial_ends_at,
+        role: userRow.role,
+        email: userRow.email
+      };
     }
 
-    const userData = userDoc.data();
     req.userPlan = userData;
 
     // Admin users bypass all checks
@@ -202,7 +166,7 @@ const checkUserPlan = async (req, res, next) => {
 
     // Check trial expiration
     if (userData.plan === 'trial') {
-      const trialEnd = userData.trialEndsAt?.toDate ? userData.trialEndsAt.toDate() : new Date(userData.trialEndsAt);
+      const trialEnd = new Date(userData.trialEndsAt);
 
       if (new Date() > trialEnd) {
         return res.status(403).json({
@@ -221,19 +185,20 @@ const checkUserPlan = async (req, res, next) => {
     }
 
     // Check brand limit
-    const analysesSnapshot = await db.collection('analyses')
-      .where('userId', '==', userId)
-      .select('brandName')
-      .get();
+    const { data: analyses, error: analysesError } = await supabase
+      .from('analyses')
+      .select('brand_name')
+      .eq('user_id', userId);
 
     // Count unique brands
     const uniqueBrands = new Set();
-    analysesSnapshot.forEach(doc => {
-      const brandName = doc.data().brandName;
-      if (brandName) {
-        uniqueBrands.add(brandName.toLowerCase());
-      }
-    });
+    if (analyses) {
+      analyses.forEach(row => {
+        if (row.brand_name) {
+          uniqueBrands.add(row.brand_name.toLowerCase());
+        }
+      });
+    }
 
     const brandsUsed = uniqueBrands.size;
     const maxBrands = userData.maxBrands || 1;
@@ -261,10 +226,13 @@ const checkUserPlan = async (req, res, next) => {
 
     // Update brands used count
     if (isNewBrand) {
-      await db.collection('users').doc(userId).update({
-        brandsUsed: brandsUsed + 1,
-        lastAnalysisAt: admin.firestore.FieldValue.serverTimestamp()
-      });
+      await supabase
+        .from('users')
+        .update({
+          brands_used: brandsUsed + 1,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId);
     }
 
     next();
@@ -425,14 +393,41 @@ app.post('/api/analyze', authenticateUser, analysisLimiter, checkUserPlan, async
 
     // Step 9: Save to database and get brandId for Phase 3 features
     let savedAnalysisId = null;
+    const brandId = `${req.user.uid}_${brandName.toLowerCase().replace(/\s+/g, '_')}`;
     try {
-      const docRef = await db.collection('analyses').add({
-        ...analysis,
-        userId: req.user.uid,
-        brandId: `${req.user.uid}_${brandName.toLowerCase().replace(/\s+/g, '_')}`,
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
-      });
-      savedAnalysisId = docRef.id;
+      const analysisToSave = {
+        user_id: req.user.uid,
+        brand_id: brandId,
+        brand_name: brandName,
+        total_mentions: analysis.totalMentions,
+        positive_percentage: analysis.positivePercentage,
+        negative_percentage: analysis.negativePercentage,
+        neutral_percentage: analysis.neutralPercentage,
+        weighted_sentiment_score: analysis.weightedSentimentScore,
+        confidence_score: analysis.confidenceScore,
+        rage_index: analysis.rageIndex,
+        rage_alert: analysis.rageAlert,
+        caution_alert: analysis.cautionAlert,
+        emotions: analysis.emotions || [],
+        platform_stats: analysis.platformStats || {},
+        top_positive_posts: analysis.topPositivePosts || [],
+        top_negative_posts: analysis.topNegativePosts || [],
+        search_results: analysis.searchResults || [],
+        themes: analysis.themes || [],
+        insights: analysis.insights || [],
+        trendline_summary: null,
+        analysis_date: analysis.analysisDate || new Date().toISOString(),
+        is_demo: analysis.isDemo || false
+      };
+
+      const { data: savedAnalysis, error: dbError } = await supabase
+        .from('analyses')
+        .insert(analysisToSave)
+        .select()
+        .single();
+
+      if (dbError) throw dbError;
+      savedAnalysisId = savedAnalysis.id;
     } catch (dbError) {
       console.error('Database save error:', dbError);
       // Continue even if DB save fails
@@ -443,16 +438,16 @@ app.post('/api/analyze', authenticateUser, analysisLimiter, checkUserPlan, async
     let trendlineSummary = null;
     try {
       // Get historical analyses for this brand to calculate trendline
-      const brandId = `${req.user.uid}_${brandName.toLowerCase().replace(/\s+/g, '_')}`;
-      const historicalSnapshot = await db.collection('analyses')
-        .where('userId', '==', req.user.uid)
-        .where('brandName', '==', brandName)
-        .orderBy('createdAt', 'desc')
-        .limit(30)
-        .get();
+      const { data: historicalRows, error: historicalError } = await supabase
+        .from('analyses')
+        .select('*')
+        .eq('user_id', req.user.uid)
+        .eq('brand_name', brandName)
+        .order('created_at', { ascending: false })
+        .limit(30);
 
       // Only calculate trendline if we have enough historical data
-      if (historicalSnapshot.size >= 7) {
+      if (historicalRows && historicalRows.length >= 7) {
         const trendline = await trendlineAnalyzer.calculateTrendline(brandId, {
           period: 30,
           granularity: 'day'
@@ -471,10 +466,13 @@ app.post('/api/analyze', authenticateUser, analysisLimiter, checkUserPlan, async
 
       // Update saved analysis with insights and trendline
       if (savedAnalysisId) {
-        await db.collection('analyses').doc(savedAnalysisId).update({
-          insights: insights,
-          trendlineSummary: trendlineSummary
-        });
+        await supabase
+          .from('analyses')
+          .update({
+            insights: insights,
+            trendline_summary: trendlineSummary
+          })
+          .eq('id', savedAnalysisId);
       }
     } catch (insightError) {
       console.error('Insight generation error:', insightError);
@@ -503,28 +501,43 @@ app.get('/api/brands', authenticateUser, async (req, res) => {
   try {
     const userId = req.user.uid;
 
-    // Fetch from analyses collection where the actual data is stored
-    const analysesSnapshot = await db.collection('analyses')
-      .where('userId', '==', userId)
-      .get();
+    const { data: analyses, error } = await supabase
+      .from('analyses')
+      .select('*')
+      .eq('user_id', userId);
 
-    const brands = [];
-    analysesSnapshot.forEach(doc => {
-      const data = doc.data();
-      brands.push({
-        id: doc.id,
-        brandName: data.brandName,
-        name: data.brandName,
-        ...data
-      });
-    });
+    if (error) throw error;
 
-    // Sort by createdAt in JavaScript (most recent first)
-    brands.sort((a, b) => {
-      const aTime = a.createdAt?.toDate?.() || new Date(0);
-      const bTime = b.createdAt?.toDate?.() || new Date(0);
-      return bTime - aTime;
-    });
+    const brands = (analyses || []).map(row => ({
+      id: row.id,
+      brandName: row.brand_name,
+      name: row.brand_name,
+      userId: row.user_id,
+      brandId: row.brand_id,
+      totalMentions: row.total_mentions,
+      positivePercentage: row.positive_percentage,
+      negativePercentage: row.negative_percentage,
+      neutralPercentage: row.neutral_percentage,
+      weightedSentimentScore: row.weighted_sentiment_score,
+      confidenceScore: row.confidence_score,
+      rageIndex: row.rage_index,
+      rageAlert: row.rage_alert,
+      cautionAlert: row.caution_alert,
+      emotions: row.emotions,
+      platformStats: row.platform_stats,
+      topPositivePosts: row.top_positive_posts,
+      topNegativePosts: row.top_negative_posts,
+      searchResults: row.search_results,
+      themes: row.themes,
+      insights: row.insights,
+      trendlineSummary: row.trendline_summary,
+      analysisDate: row.analysis_date,
+      isDemo: row.is_demo,
+      createdAt: row.created_at
+    }));
+
+    // Sort by createdAt desc
+    brands.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     console.log(`Found ${brands.length} analyzed brands for user ${userId}`);
     res.json(brands);
@@ -542,30 +555,32 @@ app.delete('/api/brands/:brandName', authenticateUser, async (req, res) => {
 
     console.log(`🗑️ Deleting brand analysis: ${brandName} for user: ${userId}`);
 
-    // Find and delete all analyses for this brand and user
-    const analysesSnapshot = await db.collection('analyses')
-      .where('userId', '==', userId)
-      .where('brandName', '==', brandName)
-      .get();
+    // Check if exists first
+    const { data: existing, error: findError } = await supabase
+      .from('analyses')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('brand_name', brandName);
 
-    if (analysesSnapshot.empty) {
+    if (findError || !existing || existing.length === 0) {
       console.log(`❌ No analysis found for brand: ${brandName}`);
       return res.status(404).json({ error: 'Brand analysis not found' });
     }
 
     // Delete all matching documents
-    const batch = db.batch();
-    analysesSnapshot.forEach(doc => {
-      batch.delete(doc.ref);
-    });
+    const { error: deleteError } = await supabase
+      .from('analyses')
+      .delete()
+      .eq('user_id', userId)
+      .eq('brand_name', brandName);
 
-    await batch.commit();
+    if (deleteError) throw deleteError;
 
-    console.log(`✅ Successfully deleted ${analysesSnapshot.size} analysis document(s) for brand: ${brandName}`);
+    console.log(`✅ Successfully deleted analysis document(s) for brand: ${brandName}`);
     res.json({
       success: true,
       message: `Brand analysis for "${brandName}" deleted successfully`,
-      deletedCount: analysesSnapshot.size
+      deletedCount: existing.length
     });
   } catch (error) {
     console.error('❌ Error deleting brand analysis:', error);
@@ -714,16 +729,18 @@ app.post('/api/billing/webhook',
             enterprise: { maxBrands: 999999, features: ['all'] }
           };
 
-          // Update user plan in Firestore
-          await db.collection('users').doc(userId).update({
-            plan: plan,
-            maxBrands: planLimits[plan].maxBrands,
-            features: planLimits[plan].features,
-            stripeCustomerId: session.customer,
-            stripeSubscriptionId: session.subscription,
-            subscriptionStatus: 'active',
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
-          });
+          // Update user plan in Supabase
+          await supabase
+            .from('users')
+            .update({
+              plan: plan,
+              max_brands: planLimits[plan].maxBrands,
+              stripe_customer_id: session.customer,
+              stripe_subscription_id: session.subscription,
+              subscription_status: 'active',
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', userId);
 
           console.log(`User ${userId} upgraded to ${plan}`);
           break;
@@ -731,14 +748,16 @@ app.post('/api/billing/webhook',
         case 'customer.subscription.updated':
           const subscription = event.data.object;
           const subUserId = subscription.metadata.userId;
-          const subPlan = subscription.metadata.plan;
 
           console.log(`Subscription updated for user ${subUserId}`);
 
-          await db.collection('users').doc(subUserId).update({
-            subscriptionStatus: subscription.status,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
-          });
+          await supabase
+            .from('users')
+            .update({
+              subscription_status: subscription.status,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', subUserId);
           break;
 
         case 'customer.subscription.deleted':
@@ -748,13 +767,15 @@ app.post('/api/billing/webhook',
           console.log(`Subscription canceled for user ${deletedUserId}`);
 
           // Downgrade to trial
-          await db.collection('users').doc(deletedUserId).update({
-            plan: 'trial',
-            maxBrands: 1,
-            features: ['basic'],
-            subscriptionStatus: 'canceled',
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
-          });
+          await supabase
+            .from('users')
+            .update({
+              plan: 'trial',
+              max_brands: 1,
+              subscription_status: 'canceled',
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', deletedUserId);
           break;
 
         case 'invoice.payment_succeeded':
@@ -767,10 +788,13 @@ app.post('/api/billing/webhook',
 
           // Optionally notify user or update status
           if (failedInvoice.subscription_details?.metadata?.userId) {
-            await db.collection('users').doc(failedInvoice.subscription_details.metadata.userId).update({
-              subscriptionStatus: 'past_due',
-              updatedAt: admin.firestore.FieldValue.serverTimestamp()
-            });
+            await supabase
+              .from('users')
+              .update({
+                subscription_status: 'past_due',
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', failedInvoice.subscription_details.metadata.userId);
           }
           break;
 
@@ -789,41 +813,44 @@ app.post('/api/billing/webhook',
 // Get user's current plan and usage
 app.get('/api/user/plan', authenticateUser, async (req, res) => {
   try {
-    const userDoc = await db.collection('users').doc(req.user.uid).get();
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', req.user.uid)
+      .single();
 
-    if (!userDoc.exists) {
+    if (userError || !userData) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const userData = userDoc.data();
-
     // Get brand count
-    const analysesSnapshot = await db.collection('analyses')
-      .where('userId', '==', req.user.uid)
-      .select('brandName')
-      .get();
+    const { data: analyses, error: analysesError } = await supabase
+      .from('analyses')
+      .select('brand_name')
+      .eq('user_id', req.user.uid);
 
     const uniqueBrands = new Set();
-    analysesSnapshot.forEach(doc => {
-      const brandName = doc.data().brandName;
-      if (brandName) uniqueBrands.add(brandName.toLowerCase());
-    });
+    if (analyses) {
+      analyses.forEach(row => {
+        if (row.brand_name) uniqueBrands.add(row.brand_name.toLowerCase());
+      });
+    }
 
     // Get list of brands for display
     const brandsList = Array.from(uniqueBrands);
 
     res.json({
       plan: userData.plan || 'trial',
-      maxBrands: userData.maxBrands || 1,
+      maxBrands: userData.max_brands || 1,
       brandsUsed: uniqueBrands.size,
       brandsList: brandsList,
       features: userData.features || ['basic'],
-      subscriptionStatus: userData.subscriptionStatus || 'active',
-      trialEndsAt: userData.trialEndsAt,
-      stripeCustomerId: userData.stripeCustomerId,
+      subscriptionStatus: userData.subscription_status || 'active',
+      trialEndsAt: userData.trial_ends_at,
+      stripeCustomerId: userData.stripe_customer_id,
       role: userData.role,
-      createdAt: userData.createdAt,
-      updatedAt: userData.updatedAt
+      createdAt: userData.created_at,
+      updatedAt: userData.updated_at
     });
   } catch (error) {
     console.error('Error fetching user plan:', error);
@@ -834,29 +861,33 @@ app.get('/api/user/plan', authenticateUser, async (req, res) => {
 // Cancel subscription
 app.post('/api/billing/cancel-subscription', authenticateUser, async (req, res) => {
   try {
-    const userDoc = await db.collection('users').doc(req.user.uid).get();
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', req.user.uid)
+      .single();
 
-    if (!userDoc.exists) {
+    if (userError || !userData) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const userData = userDoc.data();
-
-    if (!userData.stripeSubscriptionId) {
+    if (!userData.stripe_subscription_id) {
       return res.status(400).json({ error: 'No active subscription found' });
     }
 
     // Cancel at period end
     const subscription = await stripe.subscriptions.update(
-      userData.stripeSubscriptionId,
+      userData.stripe_subscription_id,
       { cancel_at_period_end: true }
     );
 
-    await db.collection('users').doc(req.user.uid).update({
-      subscriptionStatus: 'canceling',
-      cancelAtPeriodEnd: true,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
+    await supabase
+      .from('users')
+      .update({
+        subscription_status: 'canceling',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', req.user.uid);
 
     res.json({
       success: true,

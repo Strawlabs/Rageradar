@@ -1,4 +1,4 @@
-const admin = require('firebase-admin');
+const { supabase } = require('../supabase');
 
 // Authentication middleware
 const authenticateUser = async (req, res, next) => {
@@ -8,8 +8,17 @@ const authenticateUser = async (req, res, next) => {
       return res.status(401).json({ error: 'No token provided' });
     }
 
-    const decodedToken = await admin.auth().verifyIdToken(token);
-    req.user = decodedToken;
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data.user) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    req.user = {
+      uid: data.user.id,
+      email: data.user.email,
+      role: data.user.role || 'user',
+      ...data.user
+    };
     next();
   } catch (error) {
     console.error('Authentication error:', error);

@@ -47,7 +47,7 @@ const Login = () => {
               <p className="font-bold flex items-center gap-2">
                 <span>⚠️</span> Local Development Mode Active
               </p>
-              <p>Firebase is running offline. You can log in using any email and password.</p>
+              <p>Supabase is running offline. You can log in using any email and password.</p>
               <p className="text-xs text-orange-600 bg-orange-100/50 p-2 rounded">
                 <strong>Try Admin:</strong> admin@rageradar.com / any password
               </p>

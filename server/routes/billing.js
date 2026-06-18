@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const admin = require('firebase-admin');
+const { supabase } = require('../supabase');
 const { authenticateUser } = require('../middleware/auth');
 
 // Note: Stripe will be initialized when STRIPE_SECRET_KEY is provided
@@ -17,8 +17,6 @@ if (process.env.STRIPE_SECRET_KEY) {
 } else {
   console.log('⚠️ Stripe not initialized - STRIPE_SECRET_KEY not provided');
 }
-
-const db = admin.firestore();
 
 /**
  * Create Stripe checkout session
@@ -41,15 +39,18 @@ router.post('/create-checkout-session', authenticateUser, async (req, res) => {
     }
 
     // Get user data
-    const userDoc = await db.collection('users').doc(userId).get();
-    if (!userDoc.exists) {
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (userError || !userData) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const userData = userDoc.data();
-
     // Create Stripe customer if doesn't exist
-    let customerId = userData.stripeCustomerId;
+    let customerId = userData.stripe_customer_id;
     if (!customerId) {
       const customer = await stripe.customers.create({
         email: userEmail,
@@ -61,9 +62,12 @@ router.post('/create-checkout-session', authenticateUser, async (req, res) => {
       customerId = customer.id;
 
       // Save customer ID to user document
-      await db.collection('users').doc(userId).update({
-        stripeCustomerId: customerId
-      });
+      await supabase
+        .from('users')
+        .update({
+          stripe_customer_id: customerId
+        })
+        .eq('id', userId);
     }
 
     // Create checkout session
@@ -87,15 +91,17 @@ router.post('/create-checkout-session', authenticateUser, async (req, res) => {
     });
 
     // Log the checkout attempt
-    await db.collection('billing_events').add({
-      userId,
-      type: 'checkout_created',
-      sessionId: session.id,
-      planId,
-      billingCycle,
-      priceId,
-      timestamp: admin.firestore.FieldValue.serverTimestamp()
-    });
+    await supabase
+      .from('billing_events')
+      .insert({
+        user_id: userId,
+        type: 'checkout_created',
+        session_id: session.id,
+        plan_id: planId,
+        billing_cycle: billingCycle,
+        price_id: priceId,
+        timestamp: new Date().toISOString()
+      });
 
     res.json({ sessionUrl: session.url, sessionId: session.id });
 
@@ -174,19 +180,22 @@ router.get('/info', authenticateUser, async (req, res) => {
   try {
     const userId = req.user.uid;
 
-    const userDoc = await db.collection('users').doc(userId).get();
-    if (!userDoc.exists) {
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (userError || !userData) {
       return res.status(404).json({ error: 'User not found' });
     }
-
-    const userData = userDoc.data();
     
     // Get subscription info if Stripe is available
     let subscriptionInfo = null;
-    if (stripe && userData.stripeCustomerId) {
+    if (stripe && userData.stripe_customer_id) {
       try {
         const subscriptions = await stripe.subscriptions.list({
-          customer: userData.stripeCustomerId,
+          customer: userData.stripe_customer_id,
           status: 'active',
           limit: 1
         });
@@ -208,10 +217,10 @@ router.get('/info', authenticateUser, async (req, res) => {
 
     const billingInfo = {
       plan: userData.plan || 'trial',
-      stripeCustomerId: userData.stripeCustomerId || null,
+      stripeCustomerId: userData.stripe_customer_id || null,
       subscription: subscriptionInfo,
-      trialEndsAt: userData.trialEndsAt?.toDate() || null,
-      isTrialExpired: userData.trialEndsAt ? new Date() > userData.trialEndsAt.toDate() : false
+      trialEndsAt: userData.trial_ends_at || null,
+      isTrialExpired: userData.trial_ends_at ? new Date() > new Date(userData.trial_ends_at) : false
     };
 
     res.json(billingInfo);
@@ -237,13 +246,17 @@ router.post('/create-portal-session', authenticateUser, async (req, res) => {
     const userId = req.user.uid;
 
     // Get user data
-    const userDoc = await db.collection('users').doc(userId).get();
-    if (!userDoc.exists) {
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (userError || !userData) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const userData = userDoc.data();
-    const customerId = userData.stripeCustomerId;
+    const customerId = userData.stripe_customer_id;
 
     if (!customerId) {
       return res.status(400).json({ 
@@ -291,12 +304,14 @@ router.post('/cancel-subscription', authenticateUser, async (req, res) => {
     });
 
     // Log the cancellation
-    await db.collection('billing_events').add({
-      userId,
-      type: 'subscription_canceled',
-      subscriptionId,
-      timestamp: admin.firestore.FieldValue.serverTimestamp()
-    });
+    await supabase
+      .from('billing_events')
+      .insert({
+        user_id: userId,
+        type: 'subscription_canceled',
+        subscription_id: subscriptionId,
+        timestamp: new Date().toISOString()
+      });
 
     res.json({ 
       message: 'Subscription will be canceled at the end of the current period',
@@ -321,12 +336,15 @@ async function handleCheckoutCompleted(session) {
     }
 
     // Update user plan
-    await db.collection('users').doc(userId).update({
-      plan: planId,
-      stripeCustomerId: session.customer,
-      subscriptionStatus: 'active',
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
+    await supabase
+      .from('users')
+      .update({
+        plan: planId,
+        stripe_customer_id: session.customer,
+        subscription_status: 'active',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', userId);
 
     console.log(`✅ User ${userId} upgraded to ${planId} plan`);
 
@@ -340,25 +358,29 @@ async function handleSubscriptionCreated(subscription) {
     const customerId = subscription.customer;
     
     // Find user by customer ID
-    const usersSnapshot = await db.collection('users')
-      .where('stripeCustomerId', '==', customerId)
-      .limit(1)
-      .get();
+    const { data: users, error: findError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('stripe_customer_id', customerId)
+      .limit(1);
 
-    if (usersSnapshot.empty) {
+    if (findError || !users || users.length === 0) {
       console.error('User not found for customer:', customerId);
       return;
     }
 
-    const userId = usersSnapshot.docs[0].id;
+    const userId = users[0].id;
     const planId = subscription.metadata?.planId || 'pro';
 
-    await db.collection('users').doc(userId).update({
-      plan: planId,
-      subscriptionId: subscription.id,
-      subscriptionStatus: subscription.status,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
+    await supabase
+      .from('users')
+      .update({
+        plan: planId,
+        stripe_subscription_id: subscription.id,
+        subscription_status: subscription.status,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', userId);
 
     console.log(`✅ Subscription created for user ${userId}`);
 
@@ -377,24 +399,28 @@ async function handleSubscriptionDeleted(subscription) {
     const customerId = subscription.customer;
     
     // Find user by customer ID
-    const usersSnapshot = await db.collection('users')
-      .where('stripeCustomerId', '==', customerId)
-      .limit(1)
-      .get();
+    const { data: users, error: findError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('stripe_customer_id', customerId)
+      .limit(1);
 
-    if (usersSnapshot.empty) {
+    if (findError || !users || users.length === 0) {
       console.error('User not found for customer:', customerId);
       return;
     }
 
-    const userId = usersSnapshot.docs[0].id;
+    const userId = users[0].id;
 
-    await db.collection('users').doc(userId).update({
-      plan: 'trial',
-      subscriptionId: null,
-      subscriptionStatus: 'canceled',
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
+    await supabase
+      .from('users')
+      .update({
+        plan: 'trial',
+        stripe_subscription_id: null,
+        subscription_status: 'canceled',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', userId);
 
     console.log(`✅ Subscription canceled for user ${userId}`);
 
