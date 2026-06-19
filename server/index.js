@@ -70,6 +70,9 @@ const searchEngine = new SearchEngine();
 const sentimentAnalyzer = new SentimentAnalyzer();
 
 // Initialize Phase 3 components
+const ResearchOrchestrator = require('./ai/researchOrchestrator');
+const researchOrchestrator = new ResearchOrchestrator();
+
 const trendlineAnalyzer = new TrendlineAnalyzer();
 const themeExtractor = new ThemeExtractor();
 const insightsGenerator = new InsightsGenerator();
@@ -103,6 +106,11 @@ const authenticateUser = async (req, res, next) => {
 // Plan enforcement middleware
 const checkUserPlan = async (req, res, next) => {
   try {
+    // Admin users bypass all plan checks immediately
+    if (req.user?.role === 'admin') {
+      return next();
+    }
+
     const userId = req.user.uid;
 
     // Get user plan from Supabase
@@ -246,244 +254,18 @@ const checkUserPlan = async (req, res, next) => {
 // Main brand analysis endpoint - with strict rate limiting
 app.post('/api/analyze', authenticateUser, analysisLimiter, checkUserPlan, async (req, res) => {
   try {
-    const { brandName } = req.body;
+    const { brandName, website, competitors, platforms } = req.body;
 
     if (!brandName) {
       return res.status(400).json({ error: 'Brand name is required' });
     }
 
-    console.log(`Starting analysis for brand: ${brandName}`);
-
-    // Step 1: Search for brand mentions
-    const searchResults = await searchEngine.searchAllPlatforms(brandName);
-
-    if (searchResults.length === 0) {
-      return res.status(404).json({
-        error: 'No mentions found for this brand',
-        brandName,
-        totalMentions: 0
-      });
-    }
-
-    // Step 2: Extract text content and timestamps for sentiment analysis
-    const textContent = searchResults.map(result => result.text).filter(text => text && text.length > 10);
-    const timestamps = searchResults.map(result => result.timestamp || new Date().toISOString());
-
-    if (textContent.length === 0) {
-      return res.status(404).json({
-        error: 'No analyzable content found',
-        brandName,
-        totalMentions: 0
-      });
-    }
-
-    // Step 3: Perform enhanced sentiment analysis with brand context and temporal weighting
-    const sentimentResults = sentimentAnalyzer.analyzeBatch(textContent, brandName, timestamps);
-
-    // Step 4: Calculate platform statistics
-    const platformStats = {};
-    searchResults.forEach(result => {
-      platformStats[result.platform] = (platformStats[result.platform] || 0) + 1;
+    const analysis = await researchOrchestrator.conductResearch(brandName, {
+      userId: req.user.uid,
+      website,
+      competitors,
+      platforms
     });
-
-    // Step 5: Extract top positive and negative posts
-    const sortedResults = sentimentResults.individual
-      .map((result, index) => ({
-        ...result,
-        ...searchResults[index]
-      }))
-      .sort((a, b) => b.sentiment.score - a.sentiment.score);
-
-    const topPositive = sortedResults
-      .filter(r => r.sentiment.sentiment === 'positive')
-      .slice(0, 3)
-      .map(r => ({
-        text: r.text,
-        platform: r.platform,
-        score: r.sentiment.score,
-        url: r.url
-      }));
-
-    const topNegative = sortedResults
-      .filter(r => r.sentiment.sentiment === 'negative')
-      .slice(-3)
-      .map(r => ({
-        text: r.text,
-        platform: r.platform,
-        score: r.sentiment.score,
-        url: r.url
-      }));
-
-    // Step 6: Calculate enhanced rage index with temporal and context weighting
-    const negativeResults = sentimentResults.individual.filter(r => r.sentiment.sentiment === 'negative');
-
-    let rageIndex = 0;
-    if (negativeResults.length > 0) {
-      // Calculate weighted negative intensity
-      const weightedNegativeIntensity = negativeResults.reduce((sum, r) => {
-        const intensity = 100 - r.sentiment.score;
-        const weight = (r.sentiment.temporalWeight || 1) * r.sentiment.confidence;
-        const contextMultiplier = r.sentiment.contextModifiers?.includes('sarcasm') ? 1.3 : 1.0;
-        return sum + (intensity * weight * contextMultiplier);
-      }, 0);
-
-      const totalWeight = negativeResults.reduce((sum, r) =>
-        sum + ((r.sentiment.temporalWeight || 1) * r.sentiment.confidence), 0);
-
-      const avgWeightedIntensity = totalWeight > 0 ? weightedNegativeIntensity / totalWeight : 0;
-
-      // Enhanced rage index calculation
-      rageIndex = Math.min(100, avgWeightedIntensity * (sentimentResults.overall.negativePercentage / 100) * 1.2);
-    }
-
-    // Step 7: Extract themes from high-rage mentions (Phase 3)
-    let themes = [];
-    try {
-      const mentionsWithRage = sortedResults.map(r => ({
-        text: r.text,
-        rageIndex: Math.round(rageIndex),
-        platform: r.platform,
-        timestamp: r.timestamp || new Date(),
-        emotions: r.sentiment.emotions || []
-      }));
-
-      themes = await themeExtractor.extractThemes(mentionsWithRage, {
-        minRageIndex: 50,
-        topN: 5
-      });
-    } catch (themeError) {
-      console.error('Theme extraction error:', themeError);
-      // Continue without themes
-    }
-
-    // Step 8: Build comprehensive analysis result with enhanced insights
-    const analysis = {
-      brandName,
-      totalMentions: searchResults.length,
-      positivePercentage: Math.round(sentimentResults.overall.positivePercentage),
-      negativePercentage: Math.round(sentimentResults.overall.negativePercentage),
-      neutralPercentage: Math.round(sentimentResults.overall.neutralPercentage),
-      weightedSentimentScore: Math.round(sentimentResults.overall.weightedAverage),
-      confidenceScore: Math.round(sentimentResults.overall.confidenceScore * 100),
-      rageIndex: Math.round(rageIndex),
-      rageAlert: rageIndex > 70,
-      cautionAlert: rageIndex > 50,
-      emotions: sentimentResults.emotions,
-      platformStats,
-      topPositivePosts: topPositive,
-      topNegativePosts: topNegative,
-      searchResults: searchResults.slice(0, 10), // Return top 10 for reference
-      analysisDate: new Date().toISOString(),
-      isDemo: false,
-      // Phase 3: Themes
-      themes: themes,
-      // Enhanced analysis features
-      trendAnalysis: sentimentResults.trendAnalysis,
-      contextInsights: sentimentResults.contextInsights,
-      brandSpecificAnalysis: sentimentResults.brandSpecificAnalysis,
-      enhancedFeatures: {
-        temporalWeighting: true,
-        contextDetection: true,
-        brandSpecificKeywords: !!sentimentResults.brandSpecificAnalysis,
-        sarcasmDetection: true,
-        trendAnalysis: !!sentimentResults.trendAnalysis,
-        themeExtraction: themes.length > 0
-      }
-    };
-
-    // Step 9: Save to database and get brandId for Phase 3 features
-    let savedAnalysisId = null;
-    const brandId = `${req.user.uid}_${brandName.toLowerCase().replace(/\s+/g, '_')}`;
-    try {
-      const analysisToSave = {
-        user_id: req.user.uid,
-        brand_id: brandId,
-        brand_name: brandName,
-        total_mentions: analysis.totalMentions,
-        positive_percentage: analysis.positivePercentage,
-        negative_percentage: analysis.negativePercentage,
-        neutral_percentage: analysis.neutralPercentage,
-        weighted_sentiment_score: analysis.weightedSentimentScore,
-        confidence_score: analysis.confidenceScore,
-        rage_index: analysis.rageIndex,
-        rage_alert: analysis.rageAlert,
-        caution_alert: analysis.cautionAlert,
-        emotions: analysis.emotions || [],
-        platform_stats: analysis.platformStats || {},
-        top_positive_posts: analysis.topPositivePosts || [],
-        top_negative_posts: analysis.topNegativePosts || [],
-        search_results: analysis.searchResults || [],
-        themes: analysis.themes || [],
-        insights: analysis.insights || [],
-        trendline_summary: null,
-        analysis_date: analysis.analysisDate || new Date().toISOString(),
-        is_demo: analysis.isDemo || false
-      };
-
-      const { data: savedAnalysis, error: dbError } = await supabase
-        .from('analyses')
-        .insert(analysisToSave)
-        .select()
-        .single();
-
-      if (dbError) throw dbError;
-      savedAnalysisId = savedAnalysis.id;
-    } catch (dbError) {
-      console.error('Database save error:', dbError);
-      // Continue even if DB save fails
-    }
-
-    // Step 10: Generate automated insights (Phase 3)
-    let insights = [];
-    let trendlineSummary = null;
-    try {
-      // Get historical analyses for this brand to calculate trendline
-      const { data: historicalRows, error: historicalError } = await supabase
-        .from('analyses')
-        .select('*')
-        .eq('user_id', req.user.uid)
-        .eq('brand_name', brandName)
-        .order('created_at', { ascending: false })
-        .limit(30);
-
-      // Only calculate trendline if we have enough historical data
-      if (historicalRows && historicalRows.length >= 7) {
-        const trendline = await trendlineAnalyzer.calculateTrendline(brandId, {
-          period: 30,
-          granularity: 'day'
-        });
-        trendlineSummary = trendline.summary;
-      }
-
-      // Generate insights
-      const insightData = {
-        currentAnalysis: analysis,
-        themes: themes,
-        trendline: trendlineSummary ? { summary: trendlineSummary } : null
-      };
-
-      insights = await insightsGenerator.generateInsights(insightData);
-
-      // Update saved analysis with insights and trendline
-      if (savedAnalysisId) {
-        await supabase
-          .from('analyses')
-          .update({
-            insights: insights,
-            trendline_summary: trendlineSummary
-          })
-          .eq('id', savedAnalysisId);
-      }
-    } catch (insightError) {
-      console.error('Insight generation error:', insightError);
-      // Continue without insights
-    }
-
-    // Add insights and trendline to response
-    analysis.insights = insights;
-    analysis.trendlineSummary = trendlineSummary;
-
-    console.log(`Analysis completed for ${brandName}: ${analysis.totalMentions} mentions, ${analysis.positivePercentage}% positive`);
 
     res.json(analysis);
 
@@ -902,6 +684,7 @@ app.post('/api/billing/cancel-subscription', authenticateUser, async (req, res) 
 
 // Mount Phase 3 Insights Routes
 app.use('/api/insights', require('./routes/insights'));
+app.use('/api/ai', require('./routes/aiIntelligence'));
 
 // Sentry error handler (must be before other error handlers)
 app.use(getSentryErrorHandler());

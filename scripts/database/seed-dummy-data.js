@@ -21,8 +21,8 @@ async function seedDummyData() {
       contact_number: '+15551234567',
       job_title: 'Product Manager',
       company_size: '50-200',
-      brands_used: 1,
-      max_brands: 2,
+      brands_used: 2,
+      max_brands: 5,
       subscription_status: 'active',
       gdpr_consent: { analytics: true, marketing: false, functional: true, dataProcessing: true },
       gdpr_consent_updated: new Date().toISOString(),
@@ -37,9 +37,11 @@ async function seedDummyData() {
       console.log('✅ Dummy user seeded.');
     }
 
-    // 2. Seed Dummy Analysis
+    // 2. Seed Dummy Analyses
     console.log('\n➡️ Seeding Analyses...');
-    const { error: analysisError } = await supabase.from('analyses').insert({
+    
+    // Seed Apple
+    const { error: appleAnalysisError } = await supabase.from('analyses').insert({
       user_id: dummyUserId,
       brand_id: 'apple',
       brand_name: 'Apple',
@@ -84,19 +86,74 @@ async function seedDummyData() {
       is_demo: false
     });
 
-    if (analysisError) {
-      console.error('❌ Analyses insertion error:', analysisError.message || analysisError);
+    if (appleAnalysisError) {
+      console.error('❌ Apple Analysis insertion error:', appleAnalysisError.message || appleAnalysisError);
     } else {
-      console.log('✅ Dummy analysis seeded.');
+      console.log('✅ Apple mock analysis seeded.');
     }
 
-    // 3. Seed Dummy Event
+    // Seed Stripe
+    const { error: stripeAnalysisError } = await supabase.from('analyses').insert({
+      user_id: dummyUserId,
+      brand_id: 'stripe',
+      brand_name: 'Stripe',
+      total_mentions: 240,
+      positive_percentage: 45,
+      negative_percentage: 35,
+      neutral_percentage: 20,
+      weighted_sentiment_score: 54,
+      confidence_score: 85,
+      rage_index: 58,
+      rage_alert: false,
+      caution_alert: true,
+      emotions: [
+        { label: 'frustration', score: 0.35 },
+        { label: 'anger', score: 0.25 },
+        { label: 'joy', score: 0.20 },
+        { label: 'neutral', score: 0.15 },
+        { label: 'sadness', score: 0.05 }
+      ],
+      platform_stats: {
+        reddit: { total: 140, positive: 50, negative: 60 },
+        twitter: { total: 100, positive: 40, negative: 40 }
+      },
+      top_positive_posts: [
+        { title: 'Stripe Billing makes subscription models so easy to implement.', platform: 'twitter', score: 8.0 },
+        { title: 'The new Dashboard metrics UI is highly clean and readable.', platform: 'reddit', score: 7.8 }
+      ],
+      top_negative_posts: [
+        { title: 'API checkout has been throwing 504 Gateway Timeouts for the last hour!', platform: 'reddit', score: 1.2 },
+        { title: 'Account got suspended without warning. Devastating.', platform: 'twitter', score: 0.5 }
+      ],
+      search_results: [],
+      themes: ['API Latency Spikes', 'Unexpected Suspensions', 'Subscription Billing Ease'],
+      insights: [
+        'EU users are experiencing payout delays due to KYC validation updates.',
+        'Checkout latency spiked significantly on June 18 between 14:00 and 15:30 UTC.'
+      ],
+      trendline_summary: {
+        dates: ['2026-06-12', '2026-06-14', '2026-06-16', '2026-06-18'],
+        scores: [48, 50, 52, 54]
+      },
+      analysis_date: new Date().toISOString(),
+      is_demo: false
+    });
+
+    if (stripeAnalysisError) {
+      console.error('❌ Stripe Analysis insertion error:', stripeAnalysisError.message || stripeAnalysisError);
+    } else {
+      console.log('✅ Stripe mock analysis seeded.');
+    }
+
+    // 3. Seed Dummy Events
     console.log('\n➡️ Seeding Events...');
-    const { error: eventError } = await supabase.from('events').insert({
+    
+    // Seed Apple WWDC
+    const { error: appleEventError } = await supabase.from('events').insert({
       brand_id: 'apple',
       user_id: dummyUserId,
       event_name: 'Apple WWDC Keynote',
-      event_date: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString(), // 10 days in future
+      event_date: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString(),
       event_type: 'product_launch',
       description: 'Annual developers conference showcasing iOS and macOS updates.',
       pre_event_window: { days: 7 },
@@ -106,10 +163,31 @@ async function seedDummyData() {
       analysis: {}
     });
 
-    if (eventError) {
-      console.error('❌ Events insertion error:', eventError.message || eventError);
+    if (appleEventError) {
+      console.error('❌ Apple Event insertion error:', appleEventError.message || appleEventError);
     } else {
-      console.log('✅ Dummy event seeded.');
+      console.log('✅ Apple WWDC Keynote event seeded.');
+    }
+
+    // Seed Stripe Sessions
+    const { error: stripeEventError } = await supabase.from('events').insert({
+      brand_id: 'stripe',
+      user_id: dummyUserId,
+      event_name: 'Stripe Sessions Annual Conference',
+      event_date: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
+      event_type: 'developer_conference',
+      description: 'Annual conference focusing on global economic infrastructure updates and product announcements.',
+      pre_event_window: { days: 5 },
+      post_event_window: { days: 5 },
+      status: 'pending',
+      color: '#6366f1',
+      analysis: {}
+    });
+
+    if (stripeEventError) {
+      console.error('❌ Stripe Event insertion error:', stripeEventError.message || stripeEventError);
+    } else {
+      console.log('✅ Stripe Sessions event seeded.');
     }
 
   } catch (error) {

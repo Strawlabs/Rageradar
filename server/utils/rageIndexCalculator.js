@@ -54,9 +54,10 @@ class RageIndexCalculator {
     /**
      * Calculate Rage Index for a single mention
      * @param {Array} emotions - Array of emotion objects with label and score
+     * @param {object} mention - The mention object (optional, for confidence adjustment)
      * @returns {object} Rage Index data
      */
-    calculateForMention(emotions) {
+    calculateForMention(emotions, mention = {}) {
         if (!emotions || emotions.length === 0) {
             return {
                 rageIndex: 0,
@@ -84,7 +85,17 @@ class RageIndexCalculator {
             ? totalWeightedScore / totalAbsoluteWeight
             : 0;
 
-        const rageIndex = Math.max(0, Math.min(100, (normalizedScore + 1) * 50));
+        let rageIndex = Math.max(0, Math.min(100, (normalizedScore + 1) * 50));
+
+        // Confidence adjustment: pull 30% toward neutral (50) if confidence is 'low'
+        const hasLowConfidence = mention.confidence === 'low' || 
+                                 emotions.some(e => e.confidence === 'low') ||
+                                 mention.isAmbiguous ||
+                                 mention.isSarcastic; // sarcasm flips polarity but also reduces confidence
+
+        if (hasLowConfidence) {
+            rageIndex = (rageIndex * 0.7) + (50 * 0.3);
+        }
 
         return {
             rageIndex: Math.round(rageIndex),
@@ -113,9 +124,11 @@ class RageIndexCalculator {
             };
         }
 
-        let totalRageIndex = 0;
+        let totalWeightedRageIndex = 0;
+        let totalWeight = 0;
         const emotionCounts = {};
         const emotionScores = {};
+        const emotionWeightSums = {};
         const severityCounts = {
             critical: 0,
             high: 0,
@@ -124,29 +137,58 @@ class RageIndexCalculator {
             minimal: 0
         };
 
+        const now = new Date();
+
         // Calculate rage index for each mention
         mentions.forEach(mention => {
             if (mention.emotions && mention.emotions.length > 0) {
-                const mentionRage = this.calculateForMention(mention.emotions);
-                totalRageIndex += mentionRage.rageIndex;
+                // 1. Temporal Decay Weighting: exp(-0.1 * days)
+                let temporalWeight = 1.0;
+                const publishedDate = mention.publishedAt || mention.timestamp || mention.createdAt;
+                if (publishedDate) {
+                    const daysSincePublished = Math.max(0, (now - new Date(publishedDate)) / (1000 * 60 * 60 * 24));
+                    if (!isNaN(daysSincePublished)) {
+                        temporalWeight = Math.exp(-0.1 * daysSincePublished);
+                    }
+                }
+
+                // 2. Engagement Amplification: 1 + log10(1 + upvotes + replies * 2)
+                const upvotes = mention.upvotes || mention.platformMeta?.upvotes || mention.engagement?.upvotes || 0;
+                const replies = mention.replies || mention.platformMeta?.commentCount || mention.platformMeta?.replies || mention.engagement?.replies || 0;
+                const engagementMultiplier = 1 + Math.log10(1 + upvotes + replies * 2);
+
+                const weight = temporalWeight * engagementMultiplier;
+
+                // Calculate mention rage index (includes confidence-adjusted scoring)
+                const mentionRage = this.calculateForMention(mention.emotions, mention);
+                
+                totalWeightedRageIndex += mentionRage.rageIndex * weight;
+                totalWeight += weight;
+                
                 severityCounts[mentionRage.severity]++;
 
-                // Aggregate emotion data
+                // Aggregate emotion data weighted
                 mention.emotions.forEach(emotion => {
                     emotionCounts[emotion.label] = (emotionCounts[emotion.label] || 0) + 1;
-                    emotionScores[emotion.label] = (emotionScores[emotion.label] || 0) + emotion.score;
+                    emotionScores[emotion.label] = (emotionScores[emotion.label] || 0) + (emotion.score * weight);
+                    emotionWeightSums[emotion.label] = (emotionWeightSums[emotion.label] || 0) + weight;
                 });
             }
         });
 
-        const avgRageIndex = Math.round(totalRageIndex / mentions.length);
+        // 3. Bayesian Smoothing: (sampleSize * rawRageIndex + priorWeight * prior) / (sampleSize + priorWeight)
+        const rawRageIndex = totalWeight > 0 ? (totalWeightedRageIndex / totalWeight) : 40;
+        const sampleSize = totalWeight; // Use total weight as effective sample size for smoothing
+        const prior = 40;
+        const priorWeight = 10;
+        const avgRageIndex = Math.round((sampleSize * rawRageIndex + priorWeight * prior) / (sampleSize + priorWeight));
 
         // Calculate top emotions by frequency and intensity
         const topEmotions = Object.entries(emotionCounts)
             .map(([emotion, count]) => ({
                 emotion,
                 count,
-                avgScore: emotionScores[emotion] / count,
+                avgScore: parseFloat((emotionScores[emotion] / (emotionWeightSums[emotion] || 1)).toFixed(4)),
                 percentage: Math.round((count / mentions.length) * 100)
             }))
             .sort((a, b) => b.count - a.count)
@@ -157,7 +199,7 @@ class RageIndexCalculator {
         const emotionDistribution = {};
 
         Object.entries(emotionScores).forEach(([emotion, score]) => {
-            emotionDistribution[emotion] = Math.round((score / totalEmotionScore) * 100);
+            emotionDistribution[emotion] = Math.round((score / (totalEmotionScore || 1)) * 100);
         });
 
         // Platform breakdown if provided

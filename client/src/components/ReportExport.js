@@ -38,7 +38,8 @@ const ReportExport = ({ analysisData, brandName, onClose, preSelectedFormat = nu
   // Use Memo to calculate themes, recommendations and personas once per render
   const { themes, recommendations, personas } = useMemo(() => {
     // 1. Generate Themes
-    const themesData = (analysisData?.themes || ['Quality', 'Service', 'Pricing', 'User Experience', 'Innovation']).map((theme, index) => {
+    const rawThemes = (analysisData?.themes || ['Quality', 'Service', 'Pricing', 'User Experience', 'Innovation']).map(t => typeof t === 'string' ? t : (t.theme || t.name || t.label || ''));
+    const themesData = rawThemes.map((theme, index) => {
       const positiveBase = analysisData?.positivePercentage || 50;
       const variation = (Math.random() - 0.5) * 20;
       const themePositive = Math.max(10, Math.min(95, Math.round(positiveBase + variation)));

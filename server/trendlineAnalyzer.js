@@ -244,19 +244,46 @@ class TrendlineAnalyzer {
         const avgRageIndex = timeline.reduce((sum, t) => sum + t.rageIndex, 0) / timeline.length;
         const stdDev = this.calculateStdDev(timeline.map(t => t.rageIndex));
 
+        // First, mark all candidate points that exceed the threshold and meet min volume
+        const candidateSpikes = timeline.map((point, index) => {
+            const meetsThreshold = point.rageIndex > avgRageIndex + (2 * stdDev);
+            const meetsVolume = point.mentionCount > 10;
+            return {
+                point,
+                index,
+                isCandidate: meetsThreshold && meetsVolume
+            };
+        });
+
         const spikes = [];
 
-        timeline.forEach((point, index) => {
-            // Spike if > 2 standard deviations above mean
-            if (point.rageIndex > avgRageIndex + (2 * stdDev)) {
-                spikes.push({
-                    timestamp: point.timestamp,
-                    date: point.date,
-                    rageIndex: point.rageIndex,
-                    deviation: Math.round(point.rageIndex - avgRageIndex),
-                    severity: point.rageIndex > avgRageIndex + (3 * stdDev) ? 'critical' : 'high',
-                    mentionCount: point.mentionCount
-                });
+        candidateSpikes.forEach((c, i) => {
+            if (c.isCandidate) {
+                // Check run length of consecutive candidate spikes
+                let runStart = i;
+                let runEnd = i;
+                while (runStart > 0 && candidateSpikes[runStart - 1].isCandidate) {
+                    runStart--;
+                }
+                while (runEnd < candidateSpikes.length - 1 && candidateSpikes[runEnd + 1].isCandidate) {
+                    runEnd++;
+                }
+                const runLength = runEnd - runStart + 1;
+
+                // Must persist for > 2 consecutive time buckets (run length of 3 or more)
+                if (runLength > 2) {
+                    const point = c.point;
+                    spikes.push({
+                        timestamp: point.timestamp,
+                        date: point.date,
+                        rageIndex: point.rageIndex,
+                        deviation: Math.round(point.rageIndex - avgRageIndex),
+                        severity: point.rageIndex > avgRageIndex + (3 * stdDev) ? 'critical' : 'high',
+                        mentionCount: point.mentionCount,
+                        isSustained: true,
+                        runLength
+                    });
+                }
             }
         });
 

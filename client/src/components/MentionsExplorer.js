@@ -48,7 +48,7 @@ const generateMentionsFromKPIs = (kpis, brandData, timeRange = '7d') => {
   let totalMentions = Math.min(100, kpiMentions);
 
   // Use real themes for keywords if available
-  const realThemes = (brandData?.themes || []).map(t => t.name || t.label || t);
+  const realThemes = (brandData?.themes || []).map(t => typeof t === 'string' ? t : (t.theme || t.name || t.label || ''));
 
   for (let i = 0; i < totalMentions; i++) {
     const isPositive = Math.random() * 100 < kpis.averageSentiment;
@@ -518,32 +518,32 @@ const MentionsExplorer = () => {
         </div>
 
         {/* Mentions Table */}
-        <div className="bg-slate-800 rounded-xl overflow-hidden animate-fade-in">
+        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden animate-fade-in">
           {/* Table Header */}
-          <div className="px-6 py-4 border-b border-slate-700">
-            <h2 className="text-lg font-semibold text-white">
+          <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
               Mentions ({mentions.actualTotal || filteredMentions.length})
             </h2>
           </div>
-
+ 
           {/* Table Content */}
-          <div className="divide-y divide-slate-700">
+          <div className="divide-y divide-slate-200 dark:divide-slate-700">
             {currentMentions.map((mention) => (
-              <div key={mention.id} className="p-6 hover:bg-slate-700/50 transition-colors">
+              <div key={mention.id} className="p-6 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
                 {/* Header Row */}
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center space-x-4">
                     <div className="flex items-center space-x-2">
                       <div className="flex items-center justify-center w-6 h-6">{getPlatformIcon(mention.platform)}</div>
-                      <span className="font-medium text-white">{mention.author}</span>
+                      <span className="font-medium text-slate-900 dark:text-white">{mention.author}</span>
                       {mention.verified && (
                         <svg className="w-4 h-4 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                         </svg>
                       )}
                     </div>
-                    <span className="text-sm text-slate-500">•</span>
-                    <span className="text-sm text-slate-400">{formatTimeAgo(mention.timestamp)}</span>
+                    <span className="text-sm text-slate-400 dark:text-slate-500">•</span>
+                    <span className="text-sm text-slate-500 dark:text-slate-400">{formatTimeAgo(mention.timestamp)}</span>
                   </div>
 
                   <div className="flex items-center space-x-3">
@@ -558,7 +558,7 @@ const MentionsExplorer = () => {
 
                 {/* Content */}
                 <div className="mb-4">
-                  <p className="text-slate-300 leading-relaxed mb-3">
+                  <p className="text-slate-700 dark:text-slate-300 leading-relaxed mb-3">
                     "{mention.text}"
                   </p>
 
@@ -625,7 +625,7 @@ const MentionsExplorer = () => {
                     >
                       View Original
                     </a>
-                    <button className="p-2 text-slate-400 hover:text-slate-300 transition-colors">
+                    <button className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z" />
                       </svg>
@@ -635,24 +635,24 @@ const MentionsExplorer = () => {
               </div>
             ))}
           </div>
-
+ 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="px-6 py-4 border-t border-slate-700">
+            <div className="px-6 py-4 border-t border-slate-200 dark:border-slate-700">
               <div className="flex items-center justify-between">
-                <div className="text-sm text-slate-400">
+                <div className="text-sm text-slate-500 dark:text-slate-400">
                   Showing {startIndex + 1}-{Math.min(endIndex, filteredMentions.length)} of {mentions.actualTotal || filteredMentions.length} mentions{mentions.isSample ? ' (sample)' : ''}
                 </div>
-
+ 
                 <div className="flex items-center space-x-2">
                   <button
                     onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                     disabled={currentPage === 1}
-                    className="px-3 py-1 text-sm border border-slate-600 text-slate-300 rounded-lg hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-3 py-1 text-sm border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     Previous
                   </button>
-
+ 
                   <div className="flex items-center space-x-1">
                     {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                       const page = i + 1;
@@ -662,7 +662,7 @@ const MentionsExplorer = () => {
                           onClick={() => setCurrentPage(page)}
                           className={`px-3 py-1 text-sm rounded-lg transition-colors ${currentPage === page
                             ? 'bg-orange-500 text-white'
-                            : 'border border-slate-600 text-slate-300 hover:bg-slate-700'
+                            : 'border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700'
                             }`}
                         >
                           {page}
@@ -676,7 +676,7 @@ const MentionsExplorer = () => {
                           onClick={() => setCurrentPage(totalPages)}
                           className={`px-3 py-1 text-sm rounded-lg transition-colors ${currentPage === totalPages
                             ? 'bg-orange-500 text-white'
-                            : 'border border-slate-600 text-slate-300 hover:bg-slate-700'
+                            : 'border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700'
                             }`}
                         >
                           {totalPages}
@@ -684,11 +684,11 @@ const MentionsExplorer = () => {
                       </>
                     )}
                   </div>
-
+ 
                   <button
                     onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
                     disabled={currentPage === totalPages}
-                    className="px-3 py-1 text-sm border border-slate-600 text-slate-300 rounded-lg hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-3 py-1 text-sm border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     Next
                   </button>

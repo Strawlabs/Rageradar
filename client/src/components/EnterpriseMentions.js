@@ -28,7 +28,7 @@ const EnterpriseMentions = () => {
 
     const kpis = calculateKPIs(currentBrand, filters);
     const brandName = currentBrand.brandName;
-    const themes = currentBrand.themes || [];
+    const themes = (currentBrand.themes || []).map(t => typeof t === 'string' ? t : (t.theme || t.name || t.label || ''));
 
     const generateMention = () => {
       const isPositive = Math.random() * 100 < kpis.averageSentiment;
