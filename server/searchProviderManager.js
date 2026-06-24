@@ -61,11 +61,34 @@ class SearchProviderManager {
             throw new Error('No search providers available');
         }
 
-        const maxAttempts = this.providers.length;
+        const now = new Date();
+        const cooldownPeriodMs = 5 * 60 * 1000; // 5 minutes
+
+        // Check health and apply cooldown reset
+        const healthyProviders = this.providers.filter(provider => {
+            const health = this.providerHealth.get(provider.name);
+            if (!health) return true;
+
+            if (health.failures > 3) {
+                if (health.lastFailure && (now - new Date(health.lastFailure) > cooldownPeriodMs)) {
+                    logger.info(`Re-enabling search provider ${provider.name} after 5-minute cooldown.`, { providerName: provider.name });
+                    health.failures = 0;
+                    this.providerHealth.set(provider.name, health);
+                    return true;
+                }
+                return false;
+            }
+            return true;
+        });
+
+        // Fallback to all providers if all are unhealthy
+        const targetProviders = healthyProviders.length > 0 ? healthyProviders : this.providers;
+        const maxAttempts = targetProviders.length;
         let lastError = null;
 
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
-            const provider = this.providers[this.currentProviderIndex];
+            // Pick provider in order from the prioritized target list
+            const provider = targetProviders[attempt];
 
             try {
                 logger.info('Attempting search', {
@@ -80,7 +103,7 @@ class SearchProviderManager {
                 // Normalize results
                 const normalizedResults = this.normalizeResults(results, provider.name);
 
-                // Update health status
+                // Update health status (reset failures on success)
                 this.recordSuccess(provider.name);
 
                 logger.info('Search successful', {
@@ -101,9 +124,6 @@ class SearchProviderManager {
 
                 // Record failure
                 this.recordFailure(provider.name);
-
-                // Move to next provider
-                this.currentProviderIndex = (this.currentProviderIndex + 1) % this.providers.length;
 
                 // Small delay before retry
                 if (attempt < maxAttempts - 1) {

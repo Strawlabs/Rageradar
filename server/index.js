@@ -380,6 +380,35 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Search provider health check
+app.get('/api/search/health', authenticateUser, (req, res) => {
+  try {
+    const health = searchEngine.providerManager.getProviderHealth();
+    res.json({
+      success: true,
+      health
+    });
+  } catch (error) {
+    logger.error('Error fetching search provider health:', { error: error.message });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Manually switch active search provider
+app.post('/api/search/switch-provider', authenticateUser, (req, res) => {
+  try {
+    const { provider } = req.body;
+    searchEngine.providerManager.switchToProvider(provider);
+    res.json({
+      success: true,
+      message: `Successfully switched active search provider to ${provider}`
+    });
+  } catch (error) {
+    logger.error('Error switching search provider:', { error: error.message });
+    res.status(400).json({ error: error.message });
+  }
+});
+
 // Quick preview analysis (no auth required)
 // Quick preview analysis (no auth required) - with strict rate limiting for unauthenticated users
 app.post('/api/preview-analysis', previewLimiter, async (req, res) => {
