@@ -17,6 +17,14 @@ const TrendlineAnalyzer = require('../trendlineAnalyzer');
 const { supabase } = require('../supabase');
 const logger = require('../utils/logger');
 
+// Platform Integrations — direct API connections to Reddit, YouTube, ProductHunt, App Stores
+let PlatformIntegrationManager;
+try {
+    PlatformIntegrationManager = require('../integrations/platformIntegrationManager');
+} catch (err) {
+    logger.warn('PlatformIntegrationManager not available', { error: err.message });
+}
+
 class ResearchOrchestrator {
     constructor() {
         this.queryPlanner = new QueryPlanner();
@@ -28,6 +36,58 @@ class ResearchOrchestrator {
         this.insightsEngine = new AIInsightsEngine();
         this.searchEngine = new SearchEngine();
         this.trendlineAnalyzer = new TrendlineAnalyzer();
+
+        // Initialize platform integrations (Reddit, YouTube, ProductHunt, App Store)
+        this.platformManager = null;
+        if (PlatformIntegrationManager) {
+            try {
+                this.platformManager = new PlatformIntegrationManager();
+                logger.info('ResearchOrchestrator: Platform integrations loaded', {
+                    available: this.platformManager.getAvailableIntegrations()
+                });
+            } catch (err) {
+                logger.warn('ResearchOrchestrator: Platform integrations failed to initialize', { error: err.message });
+            }
+        }
+    }
+
+    /**
+     * Create a scan job record to track this research run
+     */
+    async createScanJob(userId, brandName) {
+        try {
+            const { data, error } = await supabase
+                .from('scan_jobs')
+                .insert({
+                    user_id: userId,
+                    brand_name: brandName,
+                    scan_type: 'full',
+                    status: 'running',
+                    started_at: new Date().toISOString()
+                })
+                .select('id')
+                .single();
+
+            if (error) {
+                logger.warn('Could not create scan job (table may not exist yet)', { error: error.message });
+                return null;
+            }
+            return data.id;
+        } catch (err) {
+            return null;
+        }
+    }
+
+    /**
+     * Update a scan job record
+     */
+    async updateScanJob(jobId, updates) {
+        if (!jobId) return;
+        try {
+            await supabase.from('scan_jobs').update(updates).eq('id', jobId);
+        } catch (err) {
+            // Silently fail — scan tracking is non-critical
+        }
     }
 
     /**
@@ -49,27 +109,104 @@ class ResearchOrchestrator {
         }
 
         const brandId = `${userId}_${brandName.toLowerCase().replace(/\s+/g, '_')}`;
+        const startTime = Date.now();
         logger.info(`ResearchOrchestrator: Starting brand intelligence run for ${brandName}`, { brandId });
+
+        // Create scan job for tracking
+        const scanJobId = await this.createScanJob(userId, brandName);
 
         // Step 1: Query Planning
         const queryPlan = this.queryPlanner.planQueries({ brandName, website, competitors });
 
-        // Step 2 & 3: Gather Raw Mentions
-        // Fetch raw mentions using expanded queries or the fallback SearchEngine
+        // Step 2 & 3: Gather Raw Mentions (Web Search + Platform APIs in parallel)
         logger.info(`ResearchOrchestrator: Querying search engines and platform APIs...`);
         let rawMentions = [];
+        const scanErrors = {};
+        const platformsScanned = ['web'];
         
-        // Execute main query & first 2 expanded web queries to respect rate limits
+        // ---- Step 2a: Web search queries ----
         const targetQueries = [brandName].concat(queryPlan.web.slice(1, 3));
         
-        for (const query of targetQueries) {
-            try {
-                const results = await this.searchEngine.searchAllPlatforms(query, brandName);
-                rawMentions = rawMentions.concat(results);
-            } catch (err) {
-                logger.error(`ResearchOrchestrator: Search failed for query: "${query}"`, { error: err.message });
+        const webSearchPromise = (async () => {
+            for (const query of targetQueries) {
+                try {
+                    const results = await this.searchEngine.searchAllPlatforms(query, brandName);
+                    rawMentions = rawMentions.concat(results);
+                } catch (err) {
+                    logger.error(`ResearchOrchestrator: Search failed for query: "${query}"`, { error: err.message });
+                    scanErrors.web = err.message;
+                }
             }
-        }
+        })();
+
+        // ---- Step 2b: Platform API scans (Reddit, YouTube, ProductHunt, App Store) ----
+        let platformMentions = [];
+        const platformScanPromise = (async () => {
+            if (!this.platformManager) return;
+
+            const availablePlatforms = this.platformManager.getAvailableIntegrations();
+            if (availablePlatforms.length === 0) {
+                logger.info('ResearchOrchestrator: No platform integrations configured, skipping');
+                return;
+            }
+
+            logger.info(`ResearchOrchestrator: Running platform API scans...`, { platforms: availablePlatforms });
+
+            try {
+                const platformResults = await this.platformManager.searchAllPlatforms(brandName, {
+                    includeComments: true,
+                    limit: 100
+                });
+
+                if (platformResults && platformResults.mentions) {
+                    // Convert platform mentions to the format expected by the pipeline
+                    platformMentions = platformResults.mentions.map(mention => ({
+                        title: mention.title || '',
+                        text: mention.text || '',
+                        url: mention.url || '',
+                        platform: mention.platform || 'unknown',
+                        score: mention.score || mention.votesCount || mention.likeCount || 0,
+                        created: mention.timestamp || new Date(),
+                        timestamp: (mention.timestamp || new Date()).toISOString(),
+                        source: `platform_api_${mention.platform}`,
+                        // Preserve platform-specific metadata
+                        platformMeta: {
+                            author: mention.author,
+                            rating: mention.rating,
+                            subreddit: mention.subreddit,
+                            upvoteRatio: mention.upvoteRatio,
+                            numComments: mention.numComments,
+                            videoTitle: mention.videoTitle,
+                            ...mention.metadata
+                        }
+                    }));
+
+                    // Track which platforms were scanned
+                    Object.keys(platformResults.byPlatform).forEach(p => {
+                        if (!platformsScanned.includes(p)) platformsScanned.push(p);
+                    });
+
+                    // Track platform errors
+                    if (platformResults.summary.errors) {
+                        Object.assign(scanErrors, platformResults.summary.errors);
+                    }
+
+                    logger.info(`ResearchOrchestrator: Platform scans complete`, {
+                        mentionsFound: platformMentions.length,
+                        platforms: Object.keys(platformResults.byPlatform)
+                    });
+                }
+            } catch (err) {
+                logger.error('ResearchOrchestrator: Platform scan failed', { error: err.message });
+                scanErrors.platforms = err.message;
+            }
+        })();
+
+        // Wait for both web search and platform scans to complete
+        await Promise.all([webSearchPromise, platformScanPromise]);
+
+        // Merge platform mentions into raw mentions
+        rawMentions = rawMentions.concat(platformMentions);
 
         // De-duplicate raw results by URL before fetching content
         const uniqueUrls = new Set();
@@ -81,6 +218,11 @@ class ResearchOrchestrator {
         });
 
         if (rawMentions.length === 0) {
+            await this.updateScanJob(scanJobId, {
+                status: 'failed',
+                errors: { message: 'No mentions found' },
+                completed_at: new Date().toISOString()
+            });
             throw new Error(`No mentions found for brand: ${brandName}`);
         }
 
@@ -267,11 +409,15 @@ class ResearchOrchestrator {
             recommendations: insightsPayload.recommendations || [],
             insights: insightsPayload.insights || [],
             trendlineSummary,
+            platformsScanned,
+            scanErrors: Object.keys(scanErrors).length > 0 ? scanErrors : null,
             enhancedFeatures: {
                 temporalWeighting: true,
                 contextDetection: true,
                 sarcasmDetection: true,
-                themeExtraction: themes.length > 0
+                themeExtraction: themes.length > 0,
+                platformIntegrations: platformsScanned.filter(p => p !== 'web'),
+                platformMentionsCount: platformMentions.length
             }
         };
 
@@ -315,9 +461,25 @@ class ResearchOrchestrator {
             logger.error('ResearchOrchestrator: Database save failed', { error: dbError.message });
         }
 
-        logger.info(`ResearchOrchestrator: Research completed successfully for ${brandName}`);
+        // Update scan job with final results
+        const totalDuration = Date.now() - startTime;
+        await this.updateScanJob(scanJobId, {
+            status: 'completed',
+            results_count: analysis.totalMentions,
+            platforms_scanned: platformsScanned,
+            errors: Object.keys(scanErrors).length > 0 ? scanErrors : {},
+            duration_ms: totalDuration,
+            completed_at: new Date().toISOString()
+        });
+
+        logger.info(`ResearchOrchestrator: Research completed successfully for ${brandName}`, {
+            totalMentions: analysis.totalMentions,
+            platformsScanned,
+            durationMs: totalDuration
+        });
         return analysis;
     }
 }
 
 module.exports = ResearchOrchestrator;
+

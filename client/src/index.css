@@ -1979,3 +1979,38 @@ html:not(.dark) .hover\:text-slate-300:hover {
 html:not(.dark) [class*="hover:bg-slate-"]:hover {
   background-color: hsl(var(--muted) / 0.5) !important;
 }
+
+/* ===== PLATFORM INTEGRATIONS PAGE CUSTOM STYLES ===== */
+.integration-card {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.integration-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+  border-color: var(--hover-border-color) !important;
+}
+
+.dark .integration-card:hover {
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5) !important;
+  background: rgba(30, 41, 59, 0.4) !important;
+}
+
+.integration-btn-glow {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease !important;
+}
+
+.integration-btn-glow:hover {
+  box-shadow: 0 0 15px var(--btn-glow-color) !important;
+  filter: brightness(1.1);
+}
+
+.setup-accordion-item {
+  transition: all 0.25s ease !important;
+}
+
+.setup-accordion-item:hover {
+  background: hsl(var(--muted) / 0.25) !important;
+}

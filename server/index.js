@@ -5,7 +5,7 @@ const cors = require('cors');
 const { supabase, isMockMode } = require('./supabase');
 const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STRIPE_SECRET_KEY) : null;
 
-// Initialize logger first (before any other imports that might use it)
+// Initialize logger first (before any other imports that might use it) 
 const logger = require('./utils/logger');
 logger.info('🚀 Starting RageRadar server...');
 
@@ -715,6 +715,9 @@ app.post('/api/billing/cancel-subscription', authenticateUser, async (req, res) 
 app.use('/api/insights', require('./routes/insights'));
 app.use('/api/ai', require('./routes/aiIntelligence'));
 
+// Mount Platform Integrations Routes (Reddit, YouTube, ProductHunt, App Store)
+app.use('/api/integrations', require('./routes/platformIntegrations'));
+
 // Sentry error handler (must be before other error handlers)
 app.use(getSentryErrorHandler());
 
@@ -737,6 +740,18 @@ app.use((err, req, res, next) => {
   });
 });
 
+// Check which platform integrations are configured
+const platformIntegrationStatus = {
+  reddit: !!(process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_ID !== 'your_reddit_client_id'),
+  youtube: !!(process.env.YOUTUBE_API_KEY && process.env.YOUTUBE_API_KEY !== 'your_youtube_api_key'),
+  producthunt: !!(process.env.PRODUCT_HUNT_TOKEN && process.env.PRODUCT_HUNT_TOKEN !== 'your_product_hunt_token'),
+  appstore: true // No API key needed
+};
+
+const configuredPlatforms = Object.entries(platformIntegrationStatus)
+  .filter(([, configured]) => configured)
+  .map(([name]) => name);
+
 app.listen(PORT, () => {
   logger.info(`✅ Server running on port ${PORT}`);
   logger.info(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
@@ -744,5 +759,7 @@ app.listen(PORT, () => {
   logger.info('🤖 Sentiment Analyzer: Ready');
   logger.info(`💳 Stripe Integration: ${process.env.STRIPE_SECRET_KEY ? 'Configured' : 'Not Configured'}`);
   logger.info(`📈 Sentry Monitoring: ${process.env.SENTRY_DSN ? 'Enabled' : 'Disabled'}`);
+  logger.info(`🔌 Platform Integrations: ${configuredPlatforms.join(', ') || 'None configured'}`);
+  logger.info(`🌐 Search Providers: ${process.env.GOOGLE_CSE_API_KEY && process.env.GOOGLE_CSE_API_KEY !== 'your_google_cse_api_key' ? 'Google CSE' : 'Mock Mode'}`);
   logger.info('🚀 RageRadar server is ready!');
 });

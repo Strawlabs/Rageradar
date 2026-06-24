@@ -4,12 +4,46 @@
  */
 
 const appStore = require('app-store-scraper');
-const gplay = require('google-play-scraper');
+const gplay = require('google-play-scraper').default || require('google-play-scraper');
 const logger = require('../utils/logger');
 
 class AppStoreIntegration {
     constructor() {
         this.name = 'appstore';
+        
+        // Simple in-memory cache to avoid hammering stores during analysis (5 min TTL)
+        this._cache = new Map();
+        this._cacheTTL = 5 * 60 * 1000; // 5 minutes
+    }
+
+    /**
+     * Retry a function with exponential backoff
+     */
+    async _retry(fn, maxRetries = 3, baseDelay = 1000) {
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                return await fn();
+            } catch (error) {
+                if (attempt === maxRetries) throw error;
+                const delay = baseDelay * Math.pow(2, attempt);
+                logger.warn(`App Store retry ${attempt + 1}/${maxRetries}, waiting ${delay}ms`, { error: error.message });
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+    }
+
+    /**
+     * Get from cache or execute and cache
+     */
+    async _cached(key, fn) {
+        const cached = this._cache.get(key);
+        if (cached && (Date.now() - cached.timestamp < this._cacheTTL)) {
+            logger.debug('App Store cache hit', { key });
+            return cached.data;
+        }
+        const data = await fn();
+        this._cache.set(key, { data, timestamp: Date.now() });
+        return data;
     }
 
     /**
@@ -43,23 +77,29 @@ class AppStoreIntegration {
 
             const mentions = [];
 
-            // Search iOS App Store
+            // Search iOS App Store (with retry + cache)
             if (platform === 'ios' || platform === 'both') {
                 try {
-                    const iosReviews = await this.getIOSReviews(appName, { country, limit });
+                    const iosReviews = await this._cached(
+                        `ios_${appName}_${country}`,
+                        () => this._retry(() => this.getIOSReviews(appName, { country, limit }))
+                    );
                     mentions.push(...iosReviews);
                 } catch (error) {
-                    logger.warn('iOS App Store search failed', { error: error.message });
+                    logger.warn('iOS App Store search failed after retries', { error: error.message });
                 }
             }
 
-            // Search Google Play Store
+            // Search Google Play Store (with retry + cache)
             if (platform === 'android' || platform === 'both') {
                 try {
-                    const androidReviews = await this.getAndroidReviews(appName, { country, limit });
+                    const androidReviews = await this._cached(
+                        `android_${appName}_${country}`,
+                        () => this._retry(() => this.getAndroidReviews(appName, { country, limit }))
+                    );
                     mentions.push(...androidReviews);
                 } catch (error) {
-                    logger.warn('Google Play Store search failed', { error: error.message });
+                    logger.warn('Google Play Store search failed after retries', { error: error.message });
                 }
             }
 
@@ -142,20 +182,58 @@ class AppStoreIntegration {
      */
     async getAndroidReviews(appName, options = {}) {
         try {
-            // First, search for the app
-            const searchResults = await gplay.search({
-                term: appName,
-                num: 1,
-                country: options.country || 'us',
-                lang: 'en'
-            });
+            let app = null;
 
-            if (searchResults.length === 0) {
+            // 1. If appName looks like a package ID (contains dots), try direct lookup first
+            if (appName.includes('.')) {
+                try {
+                    app = await gplay.app({ appId: appName });
+                } catch (e) {
+                    logger.debug('Direct Play Store lookup by appId failed', { appId: appName });
+                }
+            }
+
+            // 2. Fallback to search if direct lookup wasn't done or failed
+            if (!app) {
+                try {
+                    const searchResults = await gplay.search({
+                        term: appName,
+                        num: 1,
+                        country: options.country || 'us',
+                        lang: 'en'
+                    });
+                    if (searchResults && searchResults.length > 0) {
+                        app = searchResults[0];
+                    }
+                } catch (e) {
+                    logger.debug('Play Store search failed', { error: e.message });
+                }
+            }
+
+            // 3. Smart fallbacks for common brand names if search failed (due to Play Store changes)
+            if (!app) {
+                const commonGuesses = [
+                    `com.${appName.toLowerCase()}.android`,
+                    `com.${appName.toLowerCase()}`,
+                    `com.meta.${appName.toLowerCase()}`
+                ];
+                for (const appId of commonGuesses) {
+                    try {
+                        app = await gplay.app({ appId });
+                        if (app) {
+                            logger.info('Found Android app via smart fallback ID guess', { appId });
+                            break;
+                        }
+                    } catch (e) {
+                        // ignore and try next
+                    }
+                }
+            }
+
+            if (!app) {
                 logger.warn('No Android app found', { appName });
                 return [];
             }
-
-            const app = searchResults[0];
 
             // Get reviews
             const reviews = await gplay.reviews({
