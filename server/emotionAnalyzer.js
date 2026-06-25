@@ -275,7 +275,7 @@ class EmotionAnalyzer {
     calibrateEmotions(emotions, platform, starRating) {
         emotions.forEach(e => {
             // App Store calibration
-            if (platform === 'appstore' && starRating) {
+            if (['appstore', 'app_store', 'playstore', 'play_store'].includes(platform) && starRating) {
                 if (starRating <= 2 && (e.label === 'anger' || e.label === 'frustration')) {
                     e.weight = Math.min(1.0, e.weight * 1.5); // Boost anger weight
                 } else if (starRating >= 4 && (e.label === 'joy' || e.label === 'admiration')) {

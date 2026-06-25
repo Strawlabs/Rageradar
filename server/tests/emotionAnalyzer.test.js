@@ -59,5 +59,25 @@ describe('EmotionAnalyzer', () => {
 
         analyzer.calibrateEmotions(emotions, 'appstore', 5);
         expect(emotions[1].weight).toBe(-0.75); // Positive emotion weight boosted by 1.5x
+
+        // Reset weights
+        emotions[0].weight = 1.0;
+        emotions[1].weight = -0.5;
+
+        // Test app_store
+        analyzer.calibrateEmotions(emotions, 'app_store', 1);
+        expect(emotions[0].weight).toBe(1.0);
+        analyzer.calibrateEmotions(emotions, 'app_store', 5);
+        expect(emotions[1].weight).toBe(-0.75);
+
+        // Reset weights
+        emotions[0].weight = 1.0;
+        emotions[1].weight = -0.5;
+
+        // Test play_store
+        analyzer.calibrateEmotions(emotions, 'play_store', 1);
+        expect(emotions[0].weight).toBe(1.0);
+        analyzer.calibrateEmotions(emotions, 'play_store', 5);
+        expect(emotions[1].weight).toBe(-0.75);
     });
 });

@@ -56,7 +56,10 @@ class ContentNormalizer {
             reddit: this.normalizeReddit.bind(this),
             youtube: this.normalizeYouTube.bind(this),
             producthunt: this.normalizeProductHunt.bind(this),
-            appstore: this.normalizeAppStore.bind(this)
+            appstore: this.normalizeAppStore.bind(this),
+            app_store: this.normalizeAppStore.bind(this),
+            playstore: this.normalizeAppStore.bind(this),
+            play_store: this.normalizeAppStore.bind(this)
         };
     }
 
