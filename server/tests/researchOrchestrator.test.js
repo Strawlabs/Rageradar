@@ -44,7 +44,9 @@ describe('ResearchOrchestrator', () => {
             temporalWeighting: true,
             contextDetection: true,
             sarcasmDetection: true,
-            themeExtraction: true
+            themeExtraction: true,
+            platformIntegrations: [],
+            platformMentionsCount: 0
         });
     });
 });

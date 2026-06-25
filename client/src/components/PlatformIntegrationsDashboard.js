@@ -133,7 +133,7 @@ export default function PlatformIntegrationsDashboard() {
   const getHeaders = useCallback(() => ({
     'Content-Type': 'application/json',
     ...(user?.accessToken ? { 'Authorization': `Bearer ${user.accessToken}` } : {})
-  }), [user]);
+  }), [user?.accessToken]);
 
   // Fetch integration status
   const loadDashboardData = useCallback(async () => {

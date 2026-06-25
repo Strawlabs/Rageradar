@@ -5,7 +5,7 @@ const cors = require('cors');
 const { supabase, isMockMode } = require('./supabase');
 const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STRIPE_SECRET_KEY) : null;
 
-// Initialize logger first (before any other imports that might use it) 
+// Initialize logger first (before any other imports that might use it)
 const logger = require('./utils/logger');
 logger.info('🚀 Starting RageRadar server...');
 

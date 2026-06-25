@@ -8,7 +8,7 @@ const rateLimit = require('express-rate-limit');
 // General API rate limiter - applies to all API routes
 const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // Limit each IP to 100 requests per windowMs
+    max: process.env.NODE_ENV === 'development' ? 10000 : 100, // Lift limit in dev to prevent developer lockout
     message: {
         error: 'Too many requests from this IP, please try again later.',
         retryAfter: '15 minutes'
@@ -22,7 +22,7 @@ const apiLimiter = rateLimit({
 // Strict rate limiter for analysis endpoint (expensive operation)
 const analysisLimiter = rateLimit({
     windowMs: 60 * 60 * 1000, // 1 hour
-    max: 10, // Limit each IP to 10 analysis requests per hour
+    max: process.env.NODE_ENV === 'development' ? 1000 : 10, // High limit in dev to prevent lockout
     message: {
         error: 'Analysis rate limit exceeded. Please wait before analyzing more brands.',
         retryAfter: '1 hour',
