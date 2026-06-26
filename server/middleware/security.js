@@ -1,1 +1,333 @@
-const rateLimit = require('express-rate-limit');\nconst helmet = require('helmet');\nconst mongoSanitize = require('express-mongo-sanitize');\nconst xss = require('xss-clean');\nconst { body, validationResult } = require('express-validator');\nconst winston = require('winston');\nconst crypto = require('crypto');\nconst admin = require('firebase-admin');\n\n// Secure logger configuration\nconst logger = winston.createLogger({\n  level: 'info',\n  format: winston.format.combine(\n    winston.format.timestamp(),\n    winston.format.errors({ stack: true }),\n    winston.format.json(),\n    winston.format.printf(info => {\n      // Redact sensitive information\n      const sanitized = { ...info };\n      if (sanitized.message) {\n        sanitized.message = sanitized.message.replace(\n          /(api[_-]?key|token|password|secret)([\"']?\\s*[:=]\\s*[\"']?)([^\\s\"',}]+)/gi,\n          '$1$2[REDACTED]'\n        );\n      }\n      return JSON.stringify(sanitized);\n    })\n  ),\n  transports: [\n    new winston.transports.File({ \n      filename: 'logs/error.log', \n      level: 'error',\n      maxsize: 5242880, // 5MB\n      maxFiles: 5\n    }),\n    new winston.transports.File({ \n      filename: 'logs/combined.log',\n      maxsize: 5242880,\n      maxFiles: 10\n    })\n  ]\n});\n\n// Security event logging\nfunction logSecurityEvent(event, userId, details = {}) {\n  logger.warn('SECURITY_EVENT', {\n    event,\n    userId: userId ? crypto.createHash('sha256').update(userId).digest('hex').substring(0, 16) : null,\n    timestamp: new Date().toISOString(),\n    ip: details.ip,\n    userAgent: details.userAgent,\n    details: details.sanitizedDetails\n  });\n}\n\n// Suspicious activity detection\nconst suspiciousActivity = new Map();\n\nasync function detectSuspiciousActivity(userId, ip) {\n  const key = `${userId}-${ip}`;\n  const now = Date.now();\n  const activity = suspiciousActivity.get(key) || { requests: [], failedLogins: 0 };\n  \n  // Clean old requests (older than 1 hour)\n  activity.requests = activity.requests.filter(time => now - time < 3600000);\n  \n  // Check for too many requests\n  if (activity.requests.length > 100) {\n    return true;\n  }\n  \n  // Check for too many failed logins\n  if (activity.failedLogins > 5) {\n    return true;\n  }\n  \n  activity.requests.push(now);\n  suspiciousActivity.set(key, activity);\n  \n  return false;\n}\n\n// Security middleware setup\nconst setupSecurityMiddleware = (app) => {\n  // Helmet for security headers\n  app.use(helmet({\n    contentSecurityPolicy: {\n      directives: {\n        defaultSrc: [\"'self'\"],\n        styleSrc: [\"'self'\", \"'unsafe-inline'\", \"https://fonts.googleapis.com\"],\n        fontSrc: [\"'self'\", \"https://fonts.gstatic.com\"],\n        imgSrc: [\"'self'\", \"data:\", \"https:\"],\n        scriptSrc: [\"'self'\"],\n        connectSrc: [\n          \"'self'\", \n          \"https://api.huggingface.co\",\n          \"https://www.googleapis.com\",\n          \"https://accounts.google.com\",\n          \"https://slack.com\",\n          \"https://twitter.com\"\n        ]\n      }\n    },\n    hsts: {\n      maxAge: 31536000,\n      includeSubDomains: true,\n      preload: true\n    },\n    crossOriginEmbedderPolicy: false // Allow embedding for OAuth popups\n  }));\n\n  // Rate limiting\n  const limiter = rateLimit({\n    windowMs: 15 * 60 * 1000, // 15 minutes\n    max: 100, // limit each IP to 100 requests per windowMs\n    message: {\n      error: 'Too many requests from this IP, please try again later.',\n      retryAfter: 15 * 60 // seconds\n    },\n    standardHeaders: true,\n    legacyHeaders: false,\n    handler: (req, res) => {\n      logSecurityEvent('RATE_LIMIT_EXCEEDED', null, {\n        ip: req.ip,\n        userAgent: req.headers['user-agent']\n      });\n      res.status(429).json({\n        error: 'Too many requests from this IP, please try again later.',\n        retryAfter: 15 * 60\n      });\n    }\n  });\n\n  const authLimiter = rateLimit({\n    windowMs: 15 * 60 * 1000,\n    max: 5, // limit each IP to 5 auth requests per windowMs\n    skipSuccessfulRequests: true,\n    handler: (req, res) => {\n      logSecurityEvent('AUTH_RATE_LIMIT_EXCEEDED', null, {\n        ip: req.ip,\n        userAgent: req.headers['user-agent']\n      });\n      res.status(429).json({\n        error: 'Too many authentication attempts, please try again later.',\n        retryAfter: 15 * 60\n      });\n    }\n  });\n\n  app.use('/api/', limiter);\n  app.use('/api/auth', authLimiter);\n\n  // Input sanitization\n  app.use(mongoSanitize());\n  app.use(xss());\n\n  // Request logging\n  app.use((req, res, next) => {\n    logger.info('REQUEST', {\n      method: req.method,\n      url: req.url,\n      ip: req.ip,\n      userAgent: req.headers['user-agent'],\n      timestamp: new Date().toISOString()\n    });\n    next();\n  });\n};\n\n// Enhanced authentication middleware with security logging\nconst authenticateUser = async (req, res, next) => {\n  try {\n    const token = req.headers.authorization?.split(' ')[1];\n    const clientIP = req.ip || req.connection.remoteAddress;\n    \n    if (!token) {\n      logSecurityEvent('AUTH_MISSING_TOKEN', null, { ip: clientIP });\n      return res.status(401).json({ error: 'No token provided' });\n    }\n\n    const decodedToken = await admin.auth().verifyIdToken(token);\n    \n    // Check for suspicious activity\n    if (await detectSuspiciousActivity(decodedToken.uid, clientIP)) {\n      logSecurityEvent('SUSPICIOUS_ACTIVITY', decodedToken.uid, { ip: clientIP });\n      return res.status(403).json({ error: 'Account temporarily restricted due to suspicious activity' });\n    }\n    \n    // Get user plan info\n    const db = admin.firestore();\n    const userDoc = await db.collection('users').doc(decodedToken.uid).get();\n    req.userPlan = userDoc.exists ? userDoc.data() : null;\n    \n    // Check if user is admin\n    if (decodedToken.admin || decodedToken.role === 'admin' || (req.userPlan && req.userPlan.role === 'admin')) {\n      req.user = { ...decodedToken, isAdmin: true, unlimited: true };\n      req.userPlan = { ...req.userPlan, unlimited: true, maxBrands: -1, maxAnalyses: -1 };\n    } else {\n      req.user = decodedToken;\n    }\n    \n    req.clientIP = clientIP;\n    \n    // Log successful authentication\n    logger.info('AUTH_SUCCESS', {\n      userId: crypto.createHash('sha256').update(decodedToken.uid).digest('hex').substring(0, 16),\n      ip: clientIP,\n      userAgent: req.headers['user-agent']\n    });\n    \n    next();\n  } catch (error) {\n    const clientIP = req.ip || req.connection.remoteAddress;\n    \n    // Track failed login attempts\n    if (req.headers.authorization) {\n      const key = `failed-${clientIP}`;\n      const activity = suspiciousActivity.get(key) || { failedLogins: 0, lastAttempt: 0 };\n      activity.failedLogins++;\n      activity.lastAttempt = Date.now();\n      suspiciousActivity.set(key, activity);\n    }\n    \n    logSecurityEvent('AUTH_FAILED', null, { \n      ip: clientIP,\n      error: error.message,\n      userAgent: req.headers['user-agent']\n    });\n    \n    res.status(401).json({ error: 'Invalid or expired token' });\n  }\n};\n\n// Input validation middleware\nconst validateBrandAnalysis = [\n  body('brandName')\n    .isLength({ min: 1, max: 100 })\n    .matches(/^[a-zA-Z0-9\\s\\-\\.\\_\\@\\:]+$/)\n    .withMessage('Invalid brand name format')\n    .customSanitizer(value => {\n      // Additional sanitization\n      return value.trim().replace(/[<>\"']/g, '');\n    }),\n  (req, res, next) => {\n    const errors = validationResult(req);\n    if (!errors.isEmpty()) {\n      logSecurityEvent('INVALID_INPUT', req.user?.uid, {\n        ip: req.clientIP,\n        errors: errors.array(),\n        input: req.body\n      });\n      return res.status(400).json({ \n        error: 'Invalid input data',\n        details: errors.array()\n      });\n    }\n    next();\n  }\n];\n\n// Role-based access control\nclass AccessControl {\n  constructor() {\n    this.roles = {\n      user: {\n        permissions: ['read:own_data', 'create:analysis', 'update:own_profile']\n      },\n      admin: {\n        permissions: ['*'] // All permissions\n      },\n      support: {\n        permissions: ['read:user_data', 'read:audit_logs']\n      }\n    };\n  }\n\n  hasPermission(userRole, permission) {\n    const role = this.roles[userRole];\n    if (!role) return false;\n    \n    return role.permissions.includes('*') || role.permissions.includes(permission);\n  }\n\n  requirePermission(permission) {\n    return (req, res, next) => {\n      const userRole = req.userPlan?.role || 'user';\n      \n      if (!this.hasPermission(userRole, permission)) {\n        logSecurityEvent('ACCESS_DENIED', req.user?.uid, {\n          permission,\n          userRole,\n          ip: req.clientIP,\n          endpoint: req.originalUrl\n        });\n        \n        return res.status(403).json({ error: 'Insufficient permissions' });\n      }\n      \n      next();\n    };\n  }\n}\n\nconst accessControl = new AccessControl();\n\nmodule.exports = {\n  setupSecurityMiddleware,\n  authenticateUser,\n  validateBrandAnalysis,\n  accessControl,\n  logSecurityEvent,\n  logger\n};"
+const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
+const mongoSanitize = require('express-mongo-sanitize');
+const xss = require('xss-clean');
+const { body, validationResult } = require('express-validator');
+const winston = require('winston');
+const crypto = require('crypto');
+const { supabase } = require('../supabase');
+
+// Secure logger configuration
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.errors({ stack: true }),
+    winston.format.json(),
+    winston.format.printf(info => {
+      // Redact sensitive information
+      const sanitized = { ...info };
+      if (sanitized.message) {
+        sanitized.message = sanitized.message.replace(
+          /(api[_-]?key|token|password|secret)([\"']?\\s*[:=]\\s*[\"']?)([^\\s\"',}]+)/gi,
+          '$1$2[REDACTED]'
+        );
+      }
+      return JSON.stringify(sanitized);
+    })
+  ),
+  transports: [
+    new winston.transports.File({ 
+      filename: 'logs/error.log', 
+      level: 'error',
+      maxsize: 5242880, // 5MB
+      maxFiles: 5
+    }),
+    new winston.transports.File({ 
+      filename: 'logs/combined.log',
+      maxsize: 5242880,
+      maxFiles: 10
+    })
+  ]
+});
+
+// Security event logging
+function logSecurityEvent(event, userId, details = {}) {
+  logger.warn('SECURITY_EVENT', {
+    event,
+    userId: userId ? crypto.createHash('sha256').update(userId).digest('hex').substring(0, 16) : null,
+    timestamp: new Date().toISOString(),
+    ip: details.ip,
+    userAgent: details.userAgent,
+    details: details.sanitizedDetails
+  });
+}
+
+// Suspicious activity detection
+const suspiciousActivity = new Map();
+
+async function detectSuspiciousActivity(userId, ip) {
+  const key = `${userId}-${ip}`;
+  const now = Date.now();
+  const activity = suspiciousActivity.get(key) || { requests: [], failedLogins: 0 };
+  
+  // Clean old requests (older than 1 hour)
+  activity.requests = activity.requests.filter(time => now - time < 3600000);
+  
+  // Check for too many requests
+  if (activity.requests.length > 100) {
+    return true;
+  }
+  
+  // Check for too many failed logins
+  if (activity.failedLogins > 5) {
+    return true;
+  }
+  
+  activity.requests.push(now);
+  suspiciousActivity.set(key, activity);
+  
+  return false;
+}
+
+// Security middleware setup
+const setupSecurityMiddleware = (app) => {
+  // Helmet for security headers
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com"],
+        imgSrc: ["'self'", "data:", "https:"],
+        scriptSrc: ["'self'"],
+        connectSrc: [
+          "'self'", 
+          "https://api.huggingface.co",
+          "https://www.googleapis.com",
+          "https://accounts.google.com",
+          "https://slack.com",
+          "https://twitter.com"
+        ]
+      }
+    },
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: true
+    },
+    crossOriginEmbedderPolicy: false // Allow embedding for OAuth popups
+  }));
+
+  // Rate limiting
+  const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // limit each IP to 100 requests per windowMs
+    message: {
+      error: 'Too many requests from this IP, please try again later.',
+      retryAfter: 15 * 60 // seconds
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+      logSecurityEvent('RATE_LIMIT_EXCEEDED', null, {
+        ip: req.ip,
+        userAgent: req.headers['user-agent']
+      });
+      res.status(429).json({
+        error: 'Too many requests from this IP, please try again later.',
+        retryAfter: 15 * 60
+      });
+    }
+  });
+
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 5, // limit each IP to 5 auth requests per windowMs
+    skipSuccessfulRequests: true,
+    handler: (req, res) => {
+      logSecurityEvent('AUTH_RATE_LIMIT_EXCEEDED', null, {
+        ip: req.ip,
+        userAgent: req.headers['user-agent']
+      });
+      res.status(429).json({
+        error: 'Too many authentication attempts, please try again later.',
+        retryAfter: 15 * 60
+      });
+    }
+  });
+
+  app.use('/api/', limiter);
+  app.use('/api/auth', authLimiter);
+
+  // Input sanitization
+  app.use(mongoSanitize());
+  app.use(xss());
+
+  // Request logging
+  app.use((req, res, next) => {
+    logger.info('REQUEST', {
+      method: req.method,
+      url: req.url,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+      timestamp: new Date().toISOString()
+    });
+    next();
+  });
+};
+
+// Enhanced authentication middleware with security logging
+const authenticateUser = async (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    const clientIP = req.ip || req.connection.remoteAddress;
+    
+    if (!token) {
+      logSecurityEvent('AUTH_MISSING_TOKEN', null, { ip: clientIP });
+      return res.status(401).json({ error: 'No token provided' });
+    }
+
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data.user) {
+      throw new Error('Invalid token');
+    }
+
+    const decodedToken = {
+      uid: data.user.id,
+      email: data.user.email,
+      role: data.user.role || 'user',
+      ...data.user
+    };
+    
+    // Check for suspicious activity
+    if (await detectSuspiciousActivity(decodedToken.uid, clientIP)) {
+      logSecurityEvent('SUSPICIOUS_ACTIVITY', decodedToken.uid, { ip: clientIP });
+      return res.status(403).json({ error: 'Account temporarily restricted due to suspicious activity' });
+    }
+    
+    // Get user plan info
+    const { data: userRow } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', decodedToken.uid)
+      .single();
+
+    req.userPlan = userRow ? {
+      plan: userRow.plan,
+      maxBrands: userRow.max_brands,
+      brandsUsed: userRow.brands_used,
+      role: userRow.role,
+      ...userRow
+    } : null;
+    
+    // Check if user is admin
+    if (decodedToken.admin || decodedToken.role === 'admin' || (req.userPlan && req.userPlan.role === 'admin')) {
+      req.user = { ...decodedToken, isAdmin: true, unlimited: true };
+      req.userPlan = { ...req.userPlan, unlimited: true, maxBrands: -1, maxAnalyses: -1 };
+    } else {
+      req.user = decodedToken;
+    }
+    
+    req.clientIP = clientIP;
+    
+    // Log successful authentication
+    logger.info('AUTH_SUCCESS', {
+      userId: crypto.createHash('sha256').update(decodedToken.uid).digest('hex').substring(0, 16),
+      ip: clientIP,
+      userAgent: req.headers['user-agent']
+    });
+    
+    next();
+  } catch (error) {
+    const clientIP = req.ip || req.connection.remoteAddress;
+    
+    // Track failed login attempts
+    if (req.headers.authorization) {
+      const key = `failed-${clientIP}`;
+      const activity = suspiciousActivity.get(key) || { failedLogins: 0, lastAttempt: 0 };
+      activity.failedLogins++;
+      activity.lastAttempt = Date.now();
+      suspiciousActivity.set(key, activity);
+    }
+    
+    logSecurityEvent('AUTH_FAILED', null, { 
+      ip: clientIP,
+      error: error.message,
+      userAgent: req.headers['user-agent']
+    });
+    
+    res.status(401).json({ error: 'Invalid or expired token' });
+  }
+};
+
+// Input validation middleware
+const validateBrandAnalysis = [
+  body('brandName')
+    .isLength({ min: 1, max: 100 })
+    .matches(/^[a-zA-Z0-9\s\-\.\_\@\:]+$/)
+    .withMessage('Invalid brand name format')
+    .customSanitizer(value => {
+      // Additional sanitization
+      return value.trim().replace(/[<>"']/g, '');
+    }),
+  (req, res, next) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      logSecurityEvent('INVALID_INPUT', req.user?.uid, {
+        ip: req.clientIP,
+        errors: errors.array(),
+        input: req.body
+      });
+      return res.status(400).json({ 
+        error: 'Invalid input data',
+        details: errors.array()
+      });
+    }
+    next();
+  }
+];
+
+// Role-based access control
+class AccessControl {
+  constructor() {
+    this.roles = {
+      user: {
+        permissions: ['read:own_data', 'create:analysis', 'update:own_profile']
+      },
+      admin: {
+        permissions: ['*'] // All permissions
+      },
+      support: {
+        permissions: ['read:user_data', 'read:audit_logs']
+      }
+    };
+  }
+
+  hasPermission(userRole, permission) {
+    const role = this.roles[userRole];
+    if (!role) return false;
+    
+    return role.permissions.includes('*') || role.permissions.includes(permission);
+  }
+
+  requirePermission(permission) {
+    return (req, res, next) => {
+      const userRole = req.userPlan?.role || 'user';
+      
+      if (!this.hasPermission(userRole, permission)) {
+        logSecurityEvent('ACCESS_DENIED', req.user?.uid, {
+          permission,
+          userRole,
+          ip: req.clientIP,
+          endpoint: req.originalUrl
+        });
+        
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+      
+      next();
+    };
+  }
+}
+
+const accessControl = new AccessControl();
+
+module.exports = {
+  setupSecurityMiddleware,
+  authenticateUser,
+  validateBrandAnalysis,
+  accessControl,
+  logSecurityEvent,
+  logger
+};

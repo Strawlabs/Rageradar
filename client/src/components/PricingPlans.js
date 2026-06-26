@@ -136,7 +136,7 @@ const PricingPlans = () => {
     try {
       const priceId = plan.priceId[billingCycle];
       
-      // Get Firebase auth token
+      // Get Supabase auth token
       const token = await currentUser.getIdToken();
       
       // Create checkout session

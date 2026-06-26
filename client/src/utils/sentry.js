@@ -72,7 +72,7 @@ export function initSentry() {
             // ResizeObserver errors (harmless)
             'ResizeObserver loop limit exceeded',
             'ResizeObserver loop completed with undelivered notifications',
-            // Firebase auth errors (expected)
+            // Supabase auth errors (expected)
             'auth/user-not-found',
             'auth/wrong-password',
             'auth/too-many-requests',
@@ -92,7 +92,7 @@ export function initSentry() {
 
 /**
  * Set user context for error tracking
- * @param {Object} user - User information from Firebase Auth
+ * @param {Object} user - User information from Supabase Auth
  */
 export function setUser(user) {
     if (process.env.REACT_APP_SENTRY_DSN && user) {

@@ -12,12 +12,20 @@ class RedditIntegration {
 
         // Initialize Reddit client
         if (this.isConfigured()) {
-            this.client = new snoowrap({
+            const authConfig = {
                 userAgent: process.env.REDDIT_USER_AGENT || 'RageRadar/1.0',
                 clientId: process.env.REDDIT_CLIENT_ID,
-                clientSecret: process.env.REDDIT_CLIENT_SECRET,
-                refreshToken: process.env.REDDIT_REFRESH_TOKEN
-            });
+                clientSecret: process.env.REDDIT_CLIENT_SECRET
+            };
+
+            if (process.env.REDDIT_REFRESH_TOKEN) {
+                authConfig.refreshToken = process.env.REDDIT_REFRESH_TOKEN;
+            } else {
+                authConfig.username = process.env.REDDIT_USERNAME;
+                authConfig.password = process.env.REDDIT_PASSWORD;
+            }
+
+            this.client = new snoowrap(authConfig);
 
             // Configure request delay to respect rate limits
             this.client.config({ requestDelay: 1000, warnings: false });
@@ -32,7 +40,7 @@ class RedditIntegration {
         return !!(
             process.env.REDDIT_CLIENT_ID &&
             process.env.REDDIT_CLIENT_SECRET &&
-            process.env.REDDIT_REFRESH_TOKEN
+            (process.env.REDDIT_REFRESH_TOKEN || (process.env.REDDIT_USERNAME && process.env.REDDIT_PASSWORD))
         );
     }
 

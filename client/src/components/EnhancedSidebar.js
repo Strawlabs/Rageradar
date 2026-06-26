@@ -14,7 +14,8 @@ import {
   Zap,
   LogOut,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Plug
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
@@ -57,6 +58,7 @@ const EnhancedSidebar = ({ isCollapsed, onToggle, isMobile }) => {
         items: [
           { name: 'Alerts', path: '/dashboard/alerts', icon: Bell, feature: 'ADVANCED_ALERTS' },
           { name: 'Exports', path: '/dashboard/exports', icon: Download, feature: 'EXPORT_SYSTEM' },
+          { name: 'Integrations', path: '/dashboard/integrations', icon: Plug },
           { name: 'Settings', path: '/dashboard/settings', icon: Settings, feature: 'DASHBOARD' },
         ]
       }

@@ -1878,3 +1878,139 @@ input[placeholder*="Enter brand name"]:focus {
   background: rgba(255, 255, 255, 0.04) !important;
   border: 1px solid rgba(255, 255, 255, 0.06) !important;
 }
+
+/* ===== LIGHT MODE OVERRIDES FOR HARDCODED DARK CLASSES ===== */
+html:not(.dark) .bg-slate-950,
+html:not(.dark) .bg-slate-900,
+html:not(.dark) .bg-slate-900\/60,
+html:not(.dark) .bg-slate-900\/50,
+html:not(.dark) .bg-slate-900\/40,
+html:not(.dark) .bg-slate-900\/30,
+html:not(.dark) .bg-slate-950\/60,
+html:not(.dark) .bg-slate-950\/40,
+html:not(.dark) .bg-slate-950\/20 {
+  background-color: hsl(var(--background)) !important;
+}
+
+html:not(.dark) .bg-slate-800,
+html:not(.dark) .bg-slate-800\/60,
+html:not(.dark) .bg-slate-800\/40,
+html:not(.dark) .bg-slate-800\/20 {
+  background-color: hsl(var(--card)) !important;
+}
+
+html:not(.dark) .bg-slate-700,
+html:not(.dark) .bg-slate-700\/50,
+html:not(.dark) .bg-slate-700\/30 {
+  background-color: hsl(var(--muted)) !important;
+}
+
+html:not(.dark) .bg-slate-600,
+html:not(.dark) .bg-slate-500 {
+  background-color: hsl(var(--muted) / 0.8) !important;
+}
+
+html:not(.dark) .text-white,
+html:not(.dark) .text-slate-100,
+html:not(.dark) .text-slate-200,
+html:not(.dark) .text-slate-300 {
+  color: hsl(var(--foreground)) !important;
+}
+
+html:not(.dark) .text-slate-400,
+html:not(.dark) .text-slate-500 {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+html:not(.dark) .border-slate-800,
+html:not(.dark) .border-slate-900,
+html:not(.dark) .border-slate-700,
+html:not(.dark) .border-slate-600,
+html:not(.dark) [class*="border-slate-"],
+html:not(.dark) [class*="divide-slate-"] {
+  border-color: hsl(var(--border)) !important;
+}
+
+/* Cyber-HUD Light Mode overrides */
+html:not(.dark) .cyber-hud-bg {
+  background: radial-gradient(circle at 50% 50%, #f8fafc 0%, #eff6ff 100%) !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+html:not(.dark) .glass-card {
+  background: rgba(255, 255, 255, 0.7) !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.05) !important;
+}
+
+html:not(.dark) .glass-card:hover {
+  background: rgba(255, 255, 255, 0.85) !important;
+  border-color: rgba(0, 0, 0, 0.12) !important;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08) !important;
+}
+
+html:not(.dark) .cyber-panel-header {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08) !important;
+  background: rgba(241, 245, 249, 0.6) !important;
+}
+
+html:not(.dark) .platform-distribution-bar {
+  background: rgba(0, 0, 0, 0.02) !important;
+  border: 1px solid rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Overriding Tailwind hover states in light mode */
+html:not(.dark) .hover\:bg-slate-900:hover,
+html:not(.dark) .hover\:bg-slate-850:hover,
+html:not(.dark) .hover\:bg-slate-800:hover,
+html:not(.dark) .hover\:bg-slate-750:hover,
+html:not(.dark) .hover\:bg-slate-700:hover,
+html:not(.dark) .hover\:bg-slate-800\/40:hover {
+  background-color: hsl(var(--muted)) !important;
+}
+
+html:not(.dark) .hover\:text-white:hover,
+html:not(.dark) .hover\:text-slate-100:hover,
+html:not(.dark) .hover\:text-slate-300:hover {
+  color: hsl(var(--foreground)) !important;
+}
+
+/* Wildcard hover override for any background slate hover utilities in light mode */
+html:not(.dark) [class*="hover:bg-slate-"]:hover {
+  background-color: hsl(var(--muted) / 0.5) !important;
+}
+
+/* ===== PLATFORM INTEGRATIONS PAGE CUSTOM STYLES ===== */
+.integration-card {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.integration-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+  border-color: var(--hover-border-color) !important;
+}
+
+.dark .integration-card:hover {
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5) !important;
+  background: rgba(30, 41, 59, 0.4) !important;
+}
+
+.integration-btn-glow {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease !important;
+}
+
+.integration-btn-glow:hover {
+  box-shadow: 0 0 15px var(--btn-glow-color) !important;
+  filter: brightness(1.1);
+}
+
+.setup-accordion-item {
+  transition: all 0.25s ease !important;
+}
+
+.setup-accordion-item:hover {
+  background: hsl(var(--muted) / 0.25) !important;
+}

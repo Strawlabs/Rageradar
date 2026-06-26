@@ -3,13 +3,13 @@
  * Track emotions and Rage Index over time
  */
 
-const admin = require('firebase-admin');
+const { supabase } = require('./supabase');
 const logger = require('./utils/logger');
 const RageIndexCalculator = require('./utils/rageIndexCalculator');
 
 class TrendlineAnalyzer {
     constructor() {
-        this.db = admin.firestore();
+        this.supabase = supabase;
         this.rageCalculator = new RageIndexCalculator();
     }
 
@@ -127,19 +127,25 @@ class TrendlineAnalyzer {
      * @returns {Promise<Array>} Mentions
      */
     async getMentionsInPeriod(brandId, startDate, endDate) {
-        const snapshot = await this.db.collection('analyses')
-            .where('brandId', '==', brandId)
-            .where('createdAt', '>=', admin.firestore.Timestamp.fromDate(startDate))
-            .where('createdAt', '<=', admin.firestore.Timestamp.fromDate(endDate))
-            .get();
+        const { data: analyses, error } = await this.supabase
+            .from('analyses')
+            .select('*')
+            .eq('brand_id', brandId)
+            .gte('created_at', startDate.toISOString())
+            .lte('created_at', endDate.toISOString());
+
+        if (error || !analyses) {
+            logger.error('Failed to get mentions', { error: error?.message, brandId });
+            return [];
+        }
 
         const mentions = [];
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            if (data.mentions && Array.isArray(data.mentions)) {
-                mentions.push(...data.mentions.map(m => ({
+        analyses.forEach(row => {
+            const list = row.search_results || row.mentions || [];
+            if (Array.isArray(list)) {
+                mentions.push(...list.map(m => ({
                     ...m,
-                    timestamp: data.createdAt.toDate()
+                    timestamp: new Date(row.created_at)
                 })));
             }
         });
@@ -238,19 +244,46 @@ class TrendlineAnalyzer {
         const avgRageIndex = timeline.reduce((sum, t) => sum + t.rageIndex, 0) / timeline.length;
         const stdDev = this.calculateStdDev(timeline.map(t => t.rageIndex));
 
+        // First, mark all candidate points that exceed the threshold and meet min volume
+        const candidateSpikes = timeline.map((point, index) => {
+            const meetsThreshold = point.rageIndex > avgRageIndex + (2 * stdDev);
+            const meetsVolume = point.mentionCount > 10;
+            return {
+                point,
+                index,
+                isCandidate: meetsThreshold && meetsVolume
+            };
+        });
+
         const spikes = [];
 
-        timeline.forEach((point, index) => {
-            // Spike if > 2 standard deviations above mean
-            if (point.rageIndex > avgRageIndex + (2 * stdDev)) {
-                spikes.push({
-                    timestamp: point.timestamp,
-                    date: point.date,
-                    rageIndex: point.rageIndex,
-                    deviation: Math.round(point.rageIndex - avgRageIndex),
-                    severity: point.rageIndex > avgRageIndex + (3 * stdDev) ? 'critical' : 'high',
-                    mentionCount: point.mentionCount
-                });
+        candidateSpikes.forEach((c, i) => {
+            if (c.isCandidate) {
+                // Check run length of consecutive candidate spikes
+                let runStart = i;
+                let runEnd = i;
+                while (runStart > 0 && candidateSpikes[runStart - 1].isCandidate) {
+                    runStart--;
+                }
+                while (runEnd < candidateSpikes.length - 1 && candidateSpikes[runEnd + 1].isCandidate) {
+                    runEnd++;
+                }
+                const runLength = runEnd - runStart + 1;
+
+                // Must persist for > 2 consecutive time buckets (run length of 3 or more)
+                if (runLength > 2) {
+                    const point = c.point;
+                    spikes.push({
+                        timestamp: point.timestamp,
+                        date: point.date,
+                        rageIndex: point.rageIndex,
+                        deviation: Math.round(point.rageIndex - avgRageIndex),
+                        severity: point.rageIndex > avgRageIndex + (3 * stdDev) ? 'critical' : 'high',
+                        mentionCount: point.mentionCount,
+                        isSustained: true,
+                        runLength
+                    });
+                }
             }
         });
 

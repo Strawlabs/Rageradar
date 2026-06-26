@@ -64,6 +64,9 @@ import PricingPlans from './components/PricingPlans';
 import EnhancedAIInsightsEngine from './components/EnhancedAIInsightsEngine';
 import RealTimeIntelligence from './components/RealTimeIntelligence';
 
+// Platform Integrations
+import PlatformIntegrationsDashboard from './components/PlatformIntegrationsDashboard';
+
 // Production Build Components
 
 // Utils
@@ -246,6 +249,14 @@ function App() {
                   <PrivateRoute>
                     <EnhancedLayout>
                       <EnhancedAIInsightsEngine />
+                    </EnhancedLayout>
+                  </PrivateRoute>
+                } />
+                
+                <Route path="/dashboard/integrations" element={
+                  <PrivateRoute>
+                    <EnhancedLayout>
+                      <PlatformIntegrationsDashboard />
                     </EnhancedLayout>
                   </PrivateRoute>
                 } />

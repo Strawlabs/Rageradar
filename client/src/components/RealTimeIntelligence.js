@@ -248,7 +248,7 @@ const RealTimeIntelligence = () => {
       current,
       topics: (brandData.themes || []).map((theme, idx) => ({
         id: idx,
-        topic: theme.name || theme.label || theme,
+        topic: theme.theme || theme.name || theme.label || theme,
         mentions: theme.count || Math.floor(baseMentions * 0.1),
         change: '+ ' + (Math.floor(Math.random() * 20) + 5) + '%',
         sentiment: theme.sentiment !== undefined ? theme.sentiment : baseSentiment,

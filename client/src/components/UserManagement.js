@@ -51,35 +51,33 @@ const UserManagement = () => {
             return;
           }
         } catch (apiError) {
-          console.log('API not available, fetching from Firestore directly');
+          console.log('API not available, fetching from Supabase directly');
         }
 
-        // Fallback: Fetch from Firestore directly
-        const { db } = await import('../firebase');
-        const { collection, getDocs } = await import('firebase/firestore');
+        // Fallback: Fetch from Supabase directly
+        const { supabase } = await import('../supabase');
         
-        const usersSnapshot = await getDocs(collection(db, 'users'));
-        const usersData = [];
+        const { data: usersSnapshot, error: dbError } = await supabase.from('users').select('*');
+        if (dbError) throw dbError;
         
-        usersSnapshot.forEach((doc) => {
-          const userData = doc.data();
-          usersData.push({
-            id: doc.id,
+        const usersData = (usersSnapshot || []).map((userData) => {
+          return {
+            id: userData.id,
             email: userData.email || 'Unknown',
             firstName: userData.firstName || 'Unknown',
             lastName: userData.lastName || 'User',
             role: userData.role || 'user',
             plan: userData.plan || 'trial',
             status: userData.status || 'active',
-            createdAt: userData.createdAt?.toDate?.()?.toLocaleDateString() || userData.signupDate?.toDate?.()?.toLocaleDateString() || 'Unknown',
-            lastLogin: userData.lastLogin?.toDate?.()?.toLocaleDateString() || 'Never',
+            createdAt: userData.createdAt ? new Date(userData.createdAt).toLocaleDateString() : 'Unknown',
+            lastLogin: userData.lastLogin ? new Date(userData.lastLogin).toLocaleDateString() : 'Never',
             brandsUsed: userData.brandsUsed || 0,
             maxBrands: userData.maxBrands || 1,
             companyName: userData.companyName || 'N/A'
-          });
+          };
         });
 
-        console.log('📊 UserManagement: Fetched users from Firestore:', usersData.length);
+        console.log('📊 UserManagement: Fetched users from Supabase:', usersData.length);
         setUsers(usersData);
         
       } catch (error) {

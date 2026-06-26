@@ -8,9 +8,8 @@ async function testConfiguration() {
   // Test 1: Environment Variables
   console.log('1. Checking Environment Variables:');
   const requiredVars = [
-    'FIREBASE_PROJECT_ID',
-    'FIREBASE_PRIVATE_KEY',
-    'FIREBASE_CLIENT_EMAIL',
+    'SUPABASE_URL',
+    'SUPABASE_SERVICE_ROLE_KEY',
     'GOOGLE_CSE_API_KEY',
     'GOOGLE_CSE_ID',
     'HUGGING_FACE_API_KEY'
@@ -69,42 +68,24 @@ async function testConfiguration() {
     console.log(`   Error: ${error.response?.data?.error || error.message}`);
   }
 
-  // Test 4: Firebase Admin (basic check)
-  console.log('\n4. Testing Firebase Configuration:');
+  // Test 4: Supabase Connection (basic check)
+  console.log('\n4. Testing Supabase Configuration:');
   try {
-    const admin = require('firebase-admin');
-    
-    if (!admin.apps.length) {
-      const serviceAccount = {
-        type: "service_account",
-        project_id: process.env.FIREBASE_PROJECT_ID,
-        private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
-        private_key: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-        client_email: process.env.FIREBASE_CLIENT_EMAIL,
-        client_id: process.env.FIREBASE_CLIENT_ID,
-        auth_uri: "https://accounts.google.com/o/oauth2/auth",
-        token_uri: "https://oauth2.googleapis.com/token",
-        auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
-        client_x509_cert_url: `https://www.googleapis.com/robot/v1/metadata/x509/${process.env.FIREBASE_CLIENT_EMAIL}`
-      };
+    const { supabase, isMockMode } = require('../../server/supabase');
 
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
-      });
+    if (isMockMode) {
+      console.log('   ✅ Running in local Mock Mode (using mock_db.json)');
+      const { data, error } = await supabase.from('users').select('*').limit(1);
+      if (error) throw error;
+      console.log('   🔥 Mock DB: Connected');
+    } else {
+      const { data, error } = await supabase.from('users').select('*').limit(1);
+      if (error) throw error;
+      console.log('   ✅ Supabase Client: Working');
+      console.log('   🔥 Supabase Database: Connected');
     }
-
-    // Test Firestore connection
-    const db = admin.firestore();
-    await db.collection('test').doc('config-test').set({ 
-      timestamp: new Date(),
-      test: true 
-    });
-    await db.collection('test').doc('config-test').delete();
-    
-    console.log('   ✅ Firebase Admin: Working');
-    console.log('   🔥 Firestore: Connected');
   } catch (error) {
-    console.log('   ❌ Firebase Admin: Failed');
+    console.log('   ❌ Supabase: Failed');
     console.log(`   Error: ${error.message}`);
   }
 

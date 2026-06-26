@@ -3,7 +3,7 @@
  * Enforce feature access based on user's subscription plan
  */
 
-const admin = require('firebase-admin');
+const { supabase } = require('../supabase');
 const logger = require('../utils/logger');
 
 // Plan feature definitions
@@ -78,17 +78,17 @@ const PLAN_FEATURES = {
  */
 async function getUserPlan(userId) {
     try {
-        const userDoc = await admin.firestore()
-            .collection('users')
-            .doc(userId)
-            .get();
+        const { data, error } = await supabase
+            .from('users')
+            .select('plan')
+            .eq('id', userId)
+            .single();
 
-        if (!userDoc.exists) {
+        if (error || !data) {
             return 'free';
         }
 
-        const userData = userDoc.data();
-        return userData.plan || 'free';
+        return data.plan || 'free';
     } catch (error) {
         logger.error('Failed to get user plan', { error: error.message, userId });
         return 'free'; // Default to free on error
@@ -149,15 +149,15 @@ async function canPerformAnalysis(userId) {
 
     // Check usage for free/starter
     const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-    const usageSnapshot = await admin.firestore()
-        .collection('usage')
-        .where('userId', '==', userId)
-        .where('timestamp', '>=', startOfMonth)
-        .get();
+    const { data: usageRows, error } = await supabase
+        .from('usage')
+        .select('*')
+        .eq('user_id', userId)
+        .gte('timestamp', startOfMonth);
 
-    const currentUsage = usageSnapshot.size;
+    const currentUsage = usageRows ? usageRows.length : 0;
     const remaining = features.maxAnalyses - currentUsage;
 
     return {
@@ -252,11 +252,13 @@ const requireFeature = (feature) => {
  */
 async function recordUsage(userId, type = 'analysis') {
     try {
-        await admin.firestore().collection('usage').add({
-            userId,
-            type,
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
-        });
+        await supabase
+            .from('usage')
+            .insert({
+                user_id: userId,
+                type,
+                timestamp: new Date().toISOString()
+            });
 
         logger.info('Usage recorded', { userId, type });
     } catch (error) {

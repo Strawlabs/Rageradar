@@ -17,7 +17,7 @@ const EnterpriseAnalysis = () => {
 
   const kpis = calculateKPIs(currentBrand, filters);
   const brandName = currentBrand?.brandName || 'Brand';
-  const themes = currentBrand?.themes || [];
+  const themes = (currentBrand?.themes || []).map(t => typeof t === 'string' ? t : (t.theme || t.name || t.label || ''));
 
   // Analysis Types
   const analysisTypes = [

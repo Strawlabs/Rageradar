@@ -13,9 +13,23 @@ import CooperTestingDashboard from '../CooperTestingDashboard';
 import OptimizedLandingPage from '../OptimizedLandingPage';
 
 // Mock dependencies
-jest.mock('../../firebase', () => ({
-  auth: {},
-  db: {}
+jest.mock('../../supabase', () => ({
+  supabase: {
+    auth: {
+      signInWithPassword: jest.fn(),
+      signUp: jest.fn(),
+      signOut: jest.fn(),
+      getSession: jest.fn(),
+      onAuthStateChange: jest.fn(() => ({ data: { subscription: { unsubscribe: jest.fn() } } }))
+    },
+    from: jest.fn(() => ({
+      select: jest.fn(() => ({
+        eq: jest.fn(() => ({
+          single: jest.fn()
+        }))
+      }))
+    }))
+  }
 }));
 
 jest.mock('../../contexts/AuthContext', () => ({

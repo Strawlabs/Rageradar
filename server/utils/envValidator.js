@@ -4,10 +4,9 @@
  */
 
 const requiredEnvVars = [
-  // Firebase Configuration
-  'FIREBASE_PROJECT_ID',
-  'FIREBASE_PRIVATE_KEY',
-  'FIREBASE_CLIENT_EMAIL',
+  // Supabase Configuration
+  'SUPABASE_URL',
+  'SUPABASE_SERVICE_ROLE_KEY',
 
   // API Keys
   'GOOGLE_CSE_API_KEY',
@@ -19,8 +18,6 @@ const optionalEnvVars = [
   'PORT',
   'CLIENT_URL',
   'NODE_ENV',
-  'FIREBASE_PRIVATE_KEY_ID',
-  'FIREBASE_CLIENT_ID',
   'SENTRY_DSN',
   'LOG_LEVEL',
   // Stripe (optional for local testing, required for production)
@@ -81,11 +78,14 @@ function validateEnvironment() {
 }
 
 function validateSpecificFormats() {
-  // Validate Firebase private key format
-  if (process.env.FIREBASE_PRIVATE_KEY &&
-    !process.env.FIREBASE_PRIVATE_KEY.includes('BEGIN PRIVATE KEY')) {
-    console.error('❌ FIREBASE_PRIVATE_KEY appears to be malformed');
-    process.exit(1);
+  // Validate Supabase URL format
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_URL !== 'your_supabase_url') {
+    try {
+      new URL(process.env.SUPABASE_URL);
+    } catch (error) {
+      console.error('❌ SUPABASE_URL is not a valid URL');
+      process.exit(1);
+    }
   }
 
   // Validate Stripe keys

@@ -35,6 +35,20 @@ export const BrandProvider = ({ children }) => {
     }
   }, [currentUser]);
 
+  const sanitizeAndDeduplicateBrands = (brandsList) => {
+    const seen = new Set();
+    return (brandsList || [])
+      .filter(b => b && b.brandName && b.brandName.trim() !== '')
+      .filter(b => {
+        const normalized = b.brandName.trim().toLowerCase();
+        if (seen.has(normalized)) {
+          return false;
+        }
+        seen.add(normalized);
+        return true;
+      });
+  };
+
   const fetchAnalyzedBrands = async (forceRefresh = false) => {
     if (!currentUser) return;
     
@@ -48,15 +62,18 @@ export const BrandProvider = ({ children }) => {
         }
       });
       
-      const brands = response.data || [];
-      console.log('🔍 BrandContext: Fetched brands:', brands.length, forceRefresh ? '(forced refresh)' : '');
+      const rawBrands = response.data || [];
+      // Sort rawBrands by createdAt desc (or analysisDate desc)
+      rawBrands.sort((a, b) => new Date(b.createdAt || b.analysisDate || 0) - new Date(a.createdAt || a.analysisDate || 0));
+      const brands = sanitizeAndDeduplicateBrands(rawBrands);
+      console.log('🔍 BrandContext: Fetched brands (after deduplication):', brands.length, forceRefresh ? '(forced refresh)' : '');
       
       // Use only real brands from API - no demo data
       setAnalyzedBrands(brands);
       
       // Update current brand if it exists in the new data
       if (currentBrand) {
-        const updatedCurrentBrand = brands.find(b => b.brandName === currentBrand.brandName);
+        const updatedCurrentBrand = brands.find(b => b.brandName.trim().toLowerCase() === currentBrand.brandName.trim().toLowerCase());
         if (updatedCurrentBrand) {
           console.log('🔄 BrandContext: Updating current brand with fresh data');
           setCurrentBrand(updatedCurrentBrand);
@@ -77,18 +94,17 @@ export const BrandProvider = ({ children }) => {
   };
 
   const addAnalyzedBrand = (brandData) => {
+    if (!brandData || !brandData.brandName || brandData.brandName.trim() === '') return;
     console.log('🔄 BrandContext: Adding/updating brand:', brandData.brandName);
     setAnalyzedBrands(prev => {
-      // Remove existing brand with same name and add new one at the beginning
-      const filtered = prev.filter(b => b.brandName !== brandData.brandName);
+      // Remove existing brand with same name (case-insensitive) and add new one at the beginning
+      const filtered = prev.filter(b => b.brandName.trim().toLowerCase() !== brandData.brandName.trim().toLowerCase());
       const updated = [brandData, ...filtered];
       console.log('📊 BrandContext: Updated brands list:', updated.length);
       return updated;
     });
     setCurrentBrand(brandData);
     console.log('✅ BrandContext: Set current brand to:', brandData.brandName);
-    
-    // No need for automatic refresh - the brand data is already fresh from the analysis
   };
 
   const selectBrand = (brand) => {

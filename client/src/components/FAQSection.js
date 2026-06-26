@@ -42,7 +42,7 @@ const FAQSection = () => {
     },
     {
       question: "Is my data secure and private?",
-      answer: "Absolutely. We use enterprise-grade security with Firebase authentication and encryption. Your data is stored securely and never shared with third parties. We're fully GDPR compliant and take data privacy seriously."
+      answer: "Absolutely. We use enterprise-grade security with Supabase authentication and encryption. Your data is stored securely and never shared with third parties. We're fully GDPR compliant and take data privacy seriously."
     },
     {
       question: "What makes RageRadar different from other monitoring tools?",

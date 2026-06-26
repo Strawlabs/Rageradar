@@ -163,6 +163,8 @@ const ReportsOverview = () => {
       console.log('📊 ReportsOverview: currentBrand data:', currentBrand);
       console.log('📊 ReportsOverview: filters:', filters);
       console.log('📊 ReportsOverview: Calculated KPIs:', kpis);
+      const brandThemes = (currentBrand.themes || []).map(t => typeof t === 'string' ? t : (t.theme || t.name || t.label || ''));
+
       const reportData = {
         brandName: currentBrand.brandName,
         totalMentions: kpis.totalMentions,
@@ -186,8 +188,8 @@ const ReportsOverview = () => {
           {
             type: kpis.rageIndex > 60 ? 'urgent' : kpis.rageIndex > 30 ? 'warning' : 'opportunity',
             title: kpis.rageIndex > 60 ? 'High Rage Index Detected' : kpis.rageIndex > 30 ? 'Moderate Sentiment Issues' : 'Positive Brand Momentum',
-            description: currentBrand.themes && currentBrand.themes.length > 0
-              ? `Conversation is currently focused on ${currentBrand.themes.slice(0, 3).join(', ')}. ${kpis.rageIndex > 60 ? 'Negative sentiment is peaking' : 'Momentum is strong'} across these topics.`
+            description: brandThemes && brandThemes.length > 0
+              ? `Conversation is currently focused on ${brandThemes.slice(0, 3).join(', ')}. ${kpis.rageIndex > 60 ? 'Negative sentiment is peaking' : 'Momentum is strong'} across these topics.`
               : (kpis.rageIndex > 60 ? 'Immediate attention required to address negative sentiment.' :
                 kpis.rageIndex > 30 ? 'Monitor sentiment trends and consider proactive measures.' :
                   'Great time to amplify positive brand messaging.'),
@@ -196,8 +198,8 @@ const ReportsOverview = () => {
           {
             type: 'opportunity',
             title: `Expanding Market Presence`,
-            description: currentBrand.themes && currentBrand.themes[0]
-              ? `Strong signal in ${currentBrand.themes[0]} suggests an opportunity to push core brand messaging on ${currentBrand.platformCount} platforms.`
+            description: brandThemes && brandThemes[0]
+              ? `Strong signal in ${brandThemes[0]} suggests an opportunity to push core brand messaging on ${currentBrand.platformCount} platforms.`
               : `Brand analysis across ${kpis.platformCount} platforms with ${Math.round(kpis.confidenceScore)}% confidence score.`,
             confidence: Math.round(kpis.confidenceScore)
           }

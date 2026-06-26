@@ -1,46 +1,28 @@
-const admin = require('firebase-admin');
-const serviceAccount = require('./rageradar-d1830-firebase-adminsdk-fbsvc-9e5efed2e6.json');
+/**
+ * Set Admin Role Script (Supabase)
+ * Usage: node scripts/admin/set-admin-role.js <email>
+ */
+const { supabase } = require('../_supabase');
 
-// Initialize Firebase Admin
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  databaseURL: "https://rageradar-d1830-default-rtdb.firebaseio.com"
-});
+const email = process.argv[2];
+if (!email) {
+  console.error('Usage: node set-admin-role.js <email>');
+  process.exit(1);
+}
 
-const db = admin.firestore();
-
-async function setAdminRole(email) {
+async function setAdminRole() {
   try {
-    // Get user by email
-    const userRecord = await admin.auth().getUserByEmail(email);
-    console.log('Found user:', userRecord.uid);
-    
-    // Update user document in Firestore
-    const userRef = db.collection('users').doc(userRecord.uid);
-    await userRef.update({
-      role: 'admin',
-      plan: 'admin',
-      maxBrands: 999999,
-      brandsUsed: 0,
-      trialEndsAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) // 1 year from now
-    });
-    
-    console.log(`✅ Successfully set admin role for ${email}`);
-    console.log('User now has:');
-    console.log('- role: admin');
-    console.log('- plan: admin');
-    console.log('- maxBrands: 999999');
-    console.log('- Unlimited access to all features');
-    
+    const { error } = await supabase
+      .from('users')
+      .update({ role: 'admin', plan: 'enterprise', max_brands: -1, updated_at: new Date().toISOString() })
+      .eq('email', email);
+
+    if (error) throw error;
+    console.log(`✅ Admin role set for ${email}`);
   } catch (error) {
-    console.error('❌ Error setting admin role:', error);
+    console.error('❌ Error:', error.message || error);
   }
-  
   process.exit(0);
 }
 
-// Get email from command line argument or use default
-const email = process.argv[2] || 'your-email@example.com';
-
-console.log(`Setting admin role for: ${email}`);
-setAdminRole(email);
+setAdminRole();

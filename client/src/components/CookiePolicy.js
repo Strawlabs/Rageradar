@@ -86,7 +86,7 @@ const CookiePolicy = () => {
             <p className="text-gray-700 mb-4">We may use third-party services that set their own cookies:</p>
             <ul className="list-disc pl-6 mb-8 text-gray-700">
               <li><strong>Google Analytics:</strong> Website traffic analysis</li>
-              <li><strong>Firebase:</strong> Authentication and database services</li>
+              <li><strong>Supabase:</strong> Authentication and database services</li>
               <li><strong>Stripe:</strong> Payment processing</li>
               <li><strong>Intercom:</strong> Customer support chat</li>
               <li><strong>Social Media Platforms:</strong> Sharing and login features</li>

@@ -1,1 +1,132 @@
-const crypto = require('crypto');\n\nclass DataEncryption {\n  constructor() {\n    this.algorithm = 'aes-256-gcm';\n    this.key = Buffer.from(process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex'), 'hex');\n    \n    if (!process.env.ENCRYPTION_KEY) {\n      console.warn('⚠️  ENCRYPTION_KEY not set in environment variables. Using temporary key.');\n    }\n  }\n\n  encrypt(text) {\n    if (!text) return null;\n    \n    try {\n      const iv = crypto.randomBytes(16);\n      const cipher = crypto.createCipher(this.algorithm, this.key);\n      cipher.setAAD(Buffer.from('RageRadar', 'utf8'));\n      \n      let encrypted = cipher.update(text, 'utf8', 'hex');\n      encrypted += cipher.final('hex');\n      \n      const authTag = cipher.getAuthTag();\n      \n      return {\n        encrypted,\n        iv: iv.toString('hex'),\n        authTag: authTag.toString('hex')\n      };\n    } catch (error) {\n      console.error('Encryption error:', error);\n      throw new Error('Failed to encrypt data');\n    }\n  }\n\n  decrypt(encryptedData) {\n    if (!encryptedData || typeof encryptedData !== 'object') return null;\n    \n    try {\n      const decipher = crypto.createDecipher(this.algorithm, this.key);\n      decipher.setAAD(Buffer.from('RageRadar', 'utf8'));\n      decipher.setAuthTag(Buffer.from(encryptedData.authTag, 'hex'));\n      \n      let decrypted = decipher.update(encryptedData.encrypted, 'hex', 'utf8');\n      decrypted += decipher.final('utf8');\n      \n      return decrypted;\n    } catch (error) {\n      console.error('Decryption error:', error);\n      throw new Error('Failed to decrypt data');\n    }\n  }\n\n  // Hash sensitive data for logging/audit purposes\n  hashForAudit(data) {\n    if (!data) return null;\n    return crypto.createHash('sha256').update(data.toString()).digest('hex').substring(0, 16);\n  }\n\n  // Encrypt sensitive fields in user data\n  encryptSensitiveData(userData) {\n    if (!userData || typeof userData !== 'object') return userData;\n    \n    const sensitiveFields = ['email', 'companyName', 'contactNumber', 'companyEmail'];\n    const encrypted = { ...userData };\n    \n    sensitiveFields.forEach(field => {\n      if (encrypted[field] && typeof encrypted[field] === 'string') {\n        try {\n          encrypted[field] = this.encrypt(encrypted[field]);\n        } catch (error) {\n          console.error(`Failed to encrypt field ${field}:`, error);\n          // Don't fail the entire operation, but log the error\n        }\n      }\n    });\n    \n    return encrypted;\n  }\n\n  // Decrypt sensitive fields in user data\n  decryptSensitiveData(userData) {\n    if (!userData || typeof userData !== 'object') return userData;\n    \n    const sensitiveFields = ['email', 'companyName', 'contactNumber', 'companyEmail'];\n    const decrypted = { ...userData };\n    \n    sensitiveFields.forEach(field => {\n      if (decrypted[field] && typeof decrypted[field] === 'object' && decrypted[field].encrypted) {\n        try {\n          decrypted[field] = this.decrypt(decrypted[field]);\n        } catch (error) {\n          console.error(`Failed to decrypt field ${field}:`, error);\n          // Set to null if decryption fails\n          decrypted[field] = null;\n        }\n      }\n    });\n    \n    return decrypted;\n  }\n\n  // Generate secure random tokens\n  generateSecureToken(length = 32) {\n    return crypto.randomBytes(length).toString('hex');\n  }\n\n  // Secure password hashing (for additional security beyond Firebase)\n  hashPassword(password, salt = null) {\n    if (!salt) {\n      salt = crypto.randomBytes(16).toString('hex');\n    }\n    \n    const hash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');\n    return { hash, salt };\n  }\n\n  // Verify password hash\n  verifyPassword(password, hash, salt) {\n    const verifyHash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');\n    return hash === verifyHash;\n  }\n}\n\n// Singleton instance\nconst encryption = new DataEncryption();\n\nmodule.exports = {\n  DataEncryption,\n  encryption\n};"
+const crypto = require('crypto');
+
+class DataEncryption {
+  constructor() {
+    this.algorithm = 'aes-256-gcm';
+    this.key = Buffer.from(process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex'), 'hex');
+    
+    if (!process.env.ENCRYPTION_KEY) {
+      console.warn('⚠️  ENCRYPTION_KEY not set in environment variables. Using temporary key.');
+    }
+  }
+
+  encrypt(text) {
+    if (!text) return null;
+    
+    try {
+      const iv = crypto.randomBytes(16);
+      const cipher = crypto.createCipher(this.algorithm, this.key);
+      cipher.setAAD(Buffer.from('RageRadar', 'utf8'));
+      
+      let encrypted = cipher.update(text, 'utf8', 'hex');
+      encrypted += cipher.final('hex');
+      
+      const authTag = cipher.getAuthTag();
+      
+      return {
+        encrypted,
+        iv: iv.toString('hex'),
+        authTag: authTag.toString('hex')
+      };
+    } catch (error) {
+      console.error('Encryption error:', error);
+      throw new Error('Failed to encrypt data');
+    }
+  }
+
+  decrypt(encryptedData) {
+    if (!encryptedData || typeof encryptedData !== 'object') return null;
+    
+    try {
+      const decipher = crypto.createDecipher(this.algorithm, this.key);
+      decipher.setAAD(Buffer.from('RageRadar', 'utf8'));
+      decipher.setAuthTag(Buffer.from(encryptedData.authTag, 'hex'));
+      
+      let decrypted = decipher.update(encryptedData.encrypted, 'hex', 'utf8');
+      decrypted += decipher.final('utf8');
+      
+      return decrypted;
+    } catch (error) {
+      console.error('Decryption error:', error);
+      throw new Error('Failed to decrypt data');
+    }
+  }
+
+  // Hash sensitive data for logging/audit purposes
+  hashForAudit(data) {
+    if (!data) return null;
+    return crypto.createHash('sha256').update(data.toString()).digest('hex').substring(0, 16);
+  }
+
+  // Encrypt sensitive fields in user data
+  encryptSensitiveData(userData) {
+    if (!userData || typeof userData !== 'object') return userData;
+    
+    const sensitiveFields = ['email', 'companyName', 'contactNumber', 'companyEmail'];
+    const encrypted = { ...userData };
+    
+    sensitiveFields.forEach(field => {
+      if (encrypted[field] && typeof encrypted[field] === 'string') {
+        try {
+          encrypted[field] = this.encrypt(encrypted[field]);
+        } catch (error) {
+          console.error(`Failed to encrypt field ${field}:`, error);
+          // Don't fail the entire operation, but log the error
+        }
+      }
+    });
+    
+    return encrypted;
+  }
+
+  // Decrypt sensitive fields in user data
+  decryptSensitiveData(userData) {
+    if (!userData || typeof userData !== 'object') return userData;
+    
+    const sensitiveFields = ['email', 'companyName', 'contactNumber', 'companyEmail'];
+    const decrypted = { ...userData };
+    
+    sensitiveFields.forEach(field => {
+      if (decrypted[field] && typeof decrypted[field] === 'object' && decrypted[field].encrypted) {
+        try {
+          decrypted[field] = this.decrypt(decrypted[field]);
+        } catch (error) {
+          console.error(`Failed to decrypt field ${field}:`, error);
+          // Set to null if decryption fails
+          decrypted[field] = null;
+        }
+      }
+    });
+    
+    return decrypted;
+  }
+
+  // Generate secure random tokens
+  generateSecureToken(length = 32) {
+    return crypto.randomBytes(length).toString('hex');
+  }
+
+  // Secure password hashing (for additional security beyond Supabase)
+  hashPassword(password, salt = null) {
+    if (!salt) {
+      salt = crypto.randomBytes(16).toString('hex');
+    }
+    
+    const hash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
+    return { hash, salt };
+  }
+
+  // Verify password hash
+  verifyPassword(password, hash, salt) {
+    const verifyHash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
+    return hash === verifyHash;
+  }
+}
+
+// Singleton instance
+const encryption = new DataEncryption();
+
+module.exports = {
+  DataEncryption,
+  encryption
+};

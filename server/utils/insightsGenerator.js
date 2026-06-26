@@ -50,19 +50,33 @@ class InsightsGenerator {
     /**
      * Generate insights from analysis data
      * @param {object} data - Analysis data
-     * @returns {Promise<Array>} Generated insights
+     * @returns {Promise<object>} Generated insights, executive summary, and recommendations
      */
     async generateInsights(data) {
+        // Delegate to LLM-powered AI Insights Engine if configured
+        const hasOpenAi = process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_openai_api_key';
+        const hasGemini = process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your_gemini_api_key';
+        const enableLLM = process.env.ENABLE_LLM_INSIGHTS === 'true';
+
+        if (hasOpenAi || hasGemini || enableLLM) {
+            try {
+                const AIInsightsEngine = require('../ai/insightsEngine/aiInsightsEngine');
+                const engine = new AIInsightsEngine();
+                return await engine.generateLLMInsights(data);
+            } catch (error) {
+                logger.error('AI Insights Engine failed, falling back to legacy templates', { error: error.message });
+            }
+        }
+
         try {
             const {
                 currentAnalysis,
                 previousAnalysis,
                 trendline,
-                themes,
-                mentions
+                themes
             } = data;
 
-            logger.info('Generating insights', {
+            logger.info('Generating legacy template insights', {
                 hasCurrent: !!currentAnalysis,
                 hasPrevious: !!previousAnalysis,
                 hasTrendline: !!trendline,
@@ -116,16 +130,33 @@ class InsightsGenerator {
                 })
                 .slice(0, 10); // Top 10 insights
 
-            logger.info('Insights generated', {
+            logger.info('Legacy insights generated', {
                 totalInsights: insights.length,
                 topInsights: sortedInsights.length
             });
 
-            return sortedInsights;
+            const summaryObj = this.generateSummary(sortedInsights);
+            const recommendations = sortedInsights
+                .filter(i => i.recommendation)
+                .map((i, idx) => ({
+                    priority: i.priority || 'medium',
+                    recommendation: i.recommendation,
+                    evidence: i.description || i.title
+                }));
+
+            return {
+                executiveSummary: summaryObj.text,
+                recommendations,
+                insights: sortedInsights
+            };
 
         } catch (error) {
             logger.error('Insight generation failed', { error: error.message });
-            return [];
+            return {
+                executiveSummary: 'Sentiment data analysis is temporarily unavailable.',
+                recommendations: [],
+                insights: []
+            };
         }
     }
 

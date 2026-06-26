@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { supabase } = require('../supabase');
 const NotificationManager = require('../services/notificationManager');
 const { authenticateUser } = require('../middleware/auth');
 
@@ -151,23 +152,26 @@ router.get('/history', authenticateUser, async (req, res) => {
     const userId = req.user.uid;
     const { limit = 50, offset = 0 } = req.query;
     
-    const admin = require('firebase-admin');
-    const db = admin.firestore();
+    const { data: notifications, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
     
-    const notificationsSnapshot = await db.collection('notifications')
-      .where('userId', '==', userId)
-      .orderBy('timestamp', 'desc')
-      .limit(parseInt(limit))
-      .offset(parseInt(offset))
-      .get();
+    if (error) throw error;
     
-    const notifications = notificationsSnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      timestamp: doc.data().timestamp?.toDate()
+    const notificationsMapped = (notifications || []).map(row => ({
+      id: row.id,
+      userId: row.user_id,
+      title: row.title,
+      message: row.message,
+      type: row.type,
+      read: row.read,
+      timestamp: row.created_at
     }));
     
-    res.json({ notifications });
+    res.json({ notifications: notificationsMapped });
   } catch (error) {
     console.error('Error getting notification history:', error);
     res.status(500).json({ error: 'Failed to get notification history' });
@@ -204,18 +208,26 @@ router.post('/welcome', authenticateUser, async (req, res) => {
     const userId = req.user.uid;
     const { userData } = req.body;
     
-    // Get user data from Firestore if not provided
+    // Get user data from Supabase if not provided
     let userInfo = userData;
     if (!userInfo) {
-      const admin = require('firebase-admin');
-      const db = admin.firestore();
-      const userDoc = await db.collection('users').doc(userId).get();
+      const { data: userRow, error: userError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .single();
       
-      if (!userDoc.exists) {
+      if (userError || !userRow) {
         return res.status(404).json({ error: 'User not found' });
       }
       
-      userInfo = userDoc.data();
+      userInfo = {
+        email: userRow.email,
+        firstName: userRow.first_name,
+        lastName: userRow.last_name,
+        plan: userRow.plan,
+        trialEndsAt: userRow.trial_ends_at
+      };
     }
     
     const result = await notificationManager.sendWelcomeEmail(userId, userInfo);
@@ -248,21 +260,19 @@ router.post('/password-reset', async (req, res) => {
       return res.status(400).json({ error: 'Email is required' });
     }
     
-    // Generate password reset link (you might want to use Firebase Auth for this)
+    // Generate password reset link
     const resetToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
     const resetLink = `${process.env.CLIENT_URL || 'https://rageradar.com'}/reset-password-form?token=${resetToken}&email=${encodeURIComponent(email)}`;
     
     // Store reset token in database with expiration (1 hour)
-    const admin = require('firebase-admin');
-    const db = admin.firestore();
-    
-    await db.collection('password_resets').add({
-      email,
-      token: resetToken,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
-      used: false
-    });
+    await supabase
+      .from('password_resets')
+      .insert({
+        email,
+        token: resetToken,
+        expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        used: false
+      });
     
     const result = await notificationManager.sendPasswordResetEmail(email, resetLink);
     
@@ -294,7 +304,7 @@ router.get('/health', async (req, res) => {
       timestamp: new Date().toISOString(),
       services: {
         resend: !!process.env.RESEND_API_KEY,
-        firebase: true
+        supabase: true
       }
     };
     

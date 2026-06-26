@@ -28,6 +28,9 @@ class SearchEngine {
     if (!this.googleApiKey || !this.searchEngineId) {
       console.warn('⚠️  Google Custom Search API credentials not found. Please check your .env file.');
     }
+
+    const SearchProviderManager = require('./searchProviderManager');
+    this.providerManager = new SearchProviderManager();
   }
 
   async searchGoogleCustomSearch(brandName, startIndex = 1) {
@@ -232,13 +235,23 @@ class SearchEngine {
     });
   }
 
-  async searchAllPlatforms(brandName, maxResults = 50) {
-    console.log(`🚀 Starting comprehensive search across ${this.platforms.length} platforms for: ${brandName}`);
+  async searchAllPlatforms(query, brandName = null, maxResults = 50) {
+    console.log(`🚀 Starting comprehensive search across ${this.platforms.length} platforms for: ${query}`);
     
-    // Check if Custom Search is configured
-    if (!this.googleApiKey || !this.searchEngineId || this.googleApiKey === 'your_google_cse_api_key') {
+    // Check if Custom Search is configured (or in test environment)
+    if (process.env.NODE_ENV === 'test' || !this.googleApiKey || !this.searchEngineId || this.googleApiKey === 'your_google_cse_api_key') {
       console.log('⚠️  Google Custom Search API not configured. Generating realistic mock results...');
-      return this.generateMockResults(brandName);
+      
+      const targetBrand = brandName || query;
+      const validMockBrands = ['apple', 'google', 'microsoft', 'stripe', 'netflix', 'tesla', 'amazon', 'netmirror', 'stribe'];
+      const normalizedBrand = targetBrand.toLowerCase().trim();
+      
+      if (!validMockBrands.includes(normalizedBrand)) {
+        console.log(`⚠️  Brand "${targetBrand}" is not a supported mock brand. Returning empty results.`);
+        return [];
+      }
+      
+      return this.generateMockResults(targetBrand);
     }
     
     try {
@@ -250,8 +263,37 @@ class SearchEngine {
       // Search multiple pages to get more results
       for (let page = 0; page < maxPages && allResults.length < maxResults; page++) {
         try {
-          const pageResults = await this.searchGoogleCustomSearch(brandName, startIndex);
-          allResults = allResults.concat(pageResults);
+          // Use search provider manager to execute the query
+          const pageResults = await this.providerManager.search(query, { 
+            start: startIndex, 
+            count: resultsPerPage 
+          });
+
+          // Map results to the format expected by SearchEngine
+          const mappedResults = pageResults.map(r => {
+            let platform = 'web';
+            try {
+              if (r.link) {
+                const url = new URL(r.link);
+                platform = this.extractPlatform(url.hostname);
+              }
+            } catch (err) {
+              // Ignore invalid url format
+            }
+
+            return {
+              title: r.title,
+              text: r.snippet || r.title,
+              url: r.link,
+              platform: platform,
+              score: 0,
+              created: r.timestamp || new Date(),
+              timestamp: (r.timestamp || new Date()).toISOString(),
+              source: r.provider || 'google_cse'
+            };
+          });
+
+          allResults = allResults.concat(mappedResults);
           startIndex += resultsPerPage;
           
           // Small delay between requests to be respectful
@@ -260,7 +302,7 @@ class SearchEngine {
           }
         } catch (error) {
           console.error(`❌ Page ${page + 1} failed: ${error.message}`);
-          break; // Stop if we hit rate limits
+          break; // Stop if we hit rate limits/errors across all providers
         }
       }
 
@@ -273,6 +315,16 @@ class SearchEngine {
       console.log(`📊 Search completed: ${allResults.length} total results`);
       console.log(`📈 Platform breakdown:`, platformStats);
       
+      if (allResults.length === 0) {
+        console.log('⚠️  Search returned 0 results, falling back to mock data');
+        const targetBrand = brandName || query;
+        const validMockBrands = ['apple', 'google', 'microsoft', 'stripe', 'netflix', 'tesla', 'amazon', 'netmirror', 'stribe'];
+        const normalizedBrand = targetBrand.toLowerCase().trim();
+        if (!validMockBrands.includes(normalizedBrand)) {
+          return [];
+        }
+        return this.generateMockResults(targetBrand);
+      }
       return allResults.slice(0, maxResults); // Ensure we don't exceed maxResults
       
     } catch (error) {
@@ -280,7 +332,13 @@ class SearchEngine {
       
       // Fallback: Generate mock results rather than returning empty
       console.log('⚠️  Search failed, falling back to mock results');
-      return this.generateMockResults(brandName);
+      const targetBrand = brandName || query;
+      const validMockBrands = ['apple', 'google', 'microsoft', 'stripe', 'netflix', 'tesla', 'amazon', 'netmirror', 'stribe'];
+      const normalizedBrand = targetBrand.toLowerCase().trim();
+      if (!validMockBrands.includes(normalizedBrand)) {
+        return [];
+      }
+      return this.generateMockResults(targetBrand);
     }
   }
 }

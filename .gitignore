@@ -111,3 +111,7 @@ client/build/
 # client/package-lock.json
 # server/package-lock.json
 node_modules
+
+# Agent skills and lockfiles
+.agents/
+skills-lock.json

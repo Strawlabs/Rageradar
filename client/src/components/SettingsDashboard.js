@@ -293,14 +293,26 @@ const SettingsDashboard = () => {
       }
 
       // Re-authenticate user with current password first
-      const { signInWithEmailAndPassword, updatePassword } = await import('firebase/auth');
-      const { auth } = await import('../firebase');
+      const { supabase } = await import('../supabase');
 
       // Re-authenticate
-      await signInWithEmailAndPassword(auth, user.email, passwordForm.currentPassword);
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: passwordForm.currentPassword
+      });
+      
+      if (authError) {
+        throw new Error('wrong-password');
+      }
 
       // Update password
-      await updatePassword(user, passwordForm.newPassword);
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: passwordForm.newPassword
+      });
+      
+      if (updateError) {
+        throw updateError;
+      }
 
       setPasswordSuccess('Password updated successfully!');
       setShowChangePassword(false);
@@ -320,12 +332,12 @@ const SettingsDashboard = () => {
       console.error('Password change error:', error);
 
       let errorMessage = 'Failed to update password';
-      if (error.code === 'auth/wrong-password') {
+      if (error.message === 'wrong-password') {
         errorMessage = 'Current password is incorrect';
-      } else if (error.code === 'auth/weak-password') {
+      } else if (error.message?.toLowerCase().includes('weak') || error.message?.toLowerCase().includes('character')) {
         errorMessage = 'New password is too weak';
-      } else if (error.code === 'auth/requires-recent-login') {
-        errorMessage = 'Please log out and log back in before changing your password';
+      } else {
+        errorMessage = error.message || 'Failed to update password';
       }
 
       setPasswordError(errorMessage);
