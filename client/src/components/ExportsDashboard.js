@@ -125,99 +125,236 @@ const ExportsDashboard = () => {
     const baseNeutral = Math.round(filteredKPIs.neutralPercentage);
     const baseRage = Math.round(filteredKPIs.rageIndex);
     const baseConfidence = Math.round(filteredKPIs.confidenceScore);
-    const dailyMentions = Math.round(filteredKPIs.totalMentions / daysBack);
+    const totalVolume = filteredKPIs.totalMentions || 0;
+
+    // Deterministic distribution of totalVolume into dates.length buckets
+    const distributeVolume = (total, numDays, seed) => {
+      const buckets = Array(numDays).fill(0);
+      if (total <= 0) return buckets;
+      const weights = [];
+      let hash = 0;
+      for (let i = 0; i < seed.length; i++) {
+        hash = (hash << 5) - hash + seed.charCodeAt(i);
+        hash |= 0;
+      }
+      for (let i = 0; i < numDays; i++) {
+        const val = Math.sin(hash + i) * 10000;
+        const weight = 0.5 + (Math.abs(val - Math.floor(val)) * 1.0);
+        weights.push(weight);
+      }
+      const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+      let allocated = 0;
+      for (let i = 0; i < numDays - 1; i++) {
+        const amount = Math.round((weights[i] / totalWeight) * total);
+        buckets[i] = amount;
+        allocated += amount;
+      }
+      buckets[numDays - 1] = Math.max(0, total - allocated);
+      return buckets;
+    };
+
+    const dailyVolumes = distributeVolume(totalVolume, dates.length, brandName);
+
+    // Build the consistent daily records list
+    const dailyRecords = dates.map((date, index) => {
+      const volume = dailyVolumes[index];
+      
+      // Calculate positive/negative/neutral count consistently
+      let positive = 0;
+      let negative = 0;
+      let neutral = 0;
+      
+      if (volume > 0) {
+        positive = Math.round(volume * (basePositive / 100));
+        negative = Math.round(volume * (baseNegative / 100));
+        if (positive + negative > volume) {
+          if (basePositive > baseNegative) {
+            positive = volume - negative;
+          } else {
+            negative = volume - positive;
+          }
+        }
+        neutral = volume - positive - negative;
+      }
+      
+      // Compute rage per-day from actual daily positive %, not a global constant
+      const rage = volume > 0 ? Math.max(0, 100 - Math.round((positive / volume) * 100)) : baseRage;
+      const confidence = baseConfidence;
+      
+      return {
+        date,
+        volume,
+        positive,
+        negative,
+        neutral,
+        rage,
+        confidence
+      };
+    });
 
     const generateData = {
-      dashboard: () => dates.map((date, i) => {
-        // Add some realistic daily variation
-        const variation = (Math.random() - 0.5) * 20;
-        const mentions = Math.max(1, dailyMentions + Math.round(variation));
-        const positive = Math.max(0, Math.min(100, basePositive + Math.round((Math.random() - 0.5) * 10)));
-        const negative = Math.max(0, Math.min(100, baseNegative + Math.round((Math.random() - 0.5) * 8)));
-        const neutral = Math.max(0, 100 - positive - negative);
-        const rage = Math.max(0, Math.min(100, baseRage + Math.round((Math.random() - 0.5) * 15)));
-        const confidence = Math.max(60, Math.min(95, baseConfidence + Math.round((Math.random() - 0.5) * 10)));
-
-        return [date, mentions, positive, negative, neutral, rage, confidence];
+      dashboard: () => dailyRecords.map(record => {
+        const positivePct = record.volume > 0 ? Math.round((record.positive / record.volume) * 100) : 0;
+        const negativePct = record.volume > 0 ? Math.round((record.negative / record.volume) * 100) : 0;
+        const neutralPct = record.volume > 0 ? 100 - positivePct - negativePct : 0;
+        // Rage is derived from positive %, so it naturally varies day-to-day
+        const rage = 100 - positivePct;
+        return [record.date, record.volume, positivePct, negativePct, neutralPct, rage, record.confidence];
       }),
 
       mentions: () => {
         const platforms = ['Twitter', 'Reddit', 'Facebook', 'Instagram', 'YouTube', 'TikTok'];
-        const sentiments = ['Positive', 'Negative', 'Neutral'];
-        const themes = currentBrand?.themes || ['quality', 'service', 'pricing', 'features'];
+        
+        // Extract theme names, filtering out any that are just the brand name itself
+        const rawThemes = (currentBrand?.themes || []).map(t => {
+          const name = typeof t === 'object' ? (t.theme || t.name || '') : (t || '');
+          return name.trim().toLowerCase() !== brandName.trim().toLowerCase() ? name : null;
+        }).filter(Boolean);
+        const defaultThemes = ['quality', 'service', 'pricing', 'features', 'performance', 'design'];
+        const themeWords = rawThemes.length >= 4 ? rawThemes : [...rawThemes, ...defaultThemes].slice(0, 6);
+        const t0 = themeWords[0], t1 = themeWords[1], t2 = themeWords[2], t3 = themeWords[3];
 
-        const sampleMentions = [
-          `Really impressed with ${brandName}'s focus on ${themes[0] || 'quality'}.`,
-          `${brandName} ${themes[1] || 'service'} could use some improvements.`,
-          `Decent experience with ${brandName}, especially the ${themes[2] || 'pricing'}.`,
-          `Love the new ${themes[3] || 'features'} from ${brandName}!`,
-          `Having issues with ${brandName}'s ${themes[0] || 'support'}.`,
-          `${brandName} works as expected for our ${themes[1] || 'needs'}.`,
-          `Amazing ${themes[2] || 'design'} and quality from ${brandName}.`,
-          `${brandName} ${themes[3] || 'pricing'} is a bit high lately.`,
-          `Solid ${themes[0] || 'performance'} overall from ${brandName}.`,
-          `Excellent ${themes[1] || 'customer support'} today.`,
-          `Fast delivery of ${brandName} products.`,
-          `Not sure if ${brandName} is worth the money for ${themes[2] || 'this'}.`,
-          `Perfect ${brandName} solution for ${themes[3] || 'enterprise'}.`
+        // Three separate template pools — one per sentiment — so text always matches label
+        const positiveTemplates = [
+          `Really impressed with ${brandName}'s ${t0}. Great experience overall!`,
+          `${brandName}'s ${t1} is a genuine highlight — keeps getting better.`,
+          `Love the ${t2} from ${brandName}. Highly recommend.`,
+          `Solid ${t0} from ${brandName} — works exactly as promised.`,
+          `${brandName} nailed the ${t3}. Very happy customer.`,
+          `Excellent ${t1} support from ${brandName} team today.`,
+          `Fast and reliable — ${brandName}'s ${t2} exceeds expectations.`
         ];
+        const negativeTemplates = [
+          `${brandName}'s ${t0} really needs improvement. Quite disappointed.`,
+          `Having issues with ${brandName}'s ${t1} — frustrating experience.`,
+          `${brandName} is overpriced for what you get. The ${t2} is inconsistent.`,
+          `Support took forever and my ${t0} issue with ${brandName} is still unresolved.`,
+          `Why does ${brandName}'s ${t3} keep breaking? Considering switching.`,
+          `Not worth it — ${brandName}'s ${t1} quality has gone downhill.`,
+          `${brandName} failed to deliver on ${t2}. Very disappointed.`
+        ];
+        const neutralTemplates = [
+          `Just tried ${brandName}. The ${t0} seems average — nothing special yet.`,
+          `Comparing ${brandName} with others on ${t1}. Still deciding.`,
+          `New update from ${brandName} regarding ${t2}. Testing it out.`,
+          `Does ${brandName} offer better ${t3} options? Open to suggestions.`,
+          `${brandName}'s ${t0} is fine for basic needs. Not remarkable.`,
+          `Evaluating ${brandName} for our team's ${t1} requirements.`,
+          `${brandName} works as expected. Nothing to complain about, nothing to praise.`
+        ];
+        const templatesByBucket = { Positive: positiveTemplates, Negative: negativeTemplates, Neutral: neutralTemplates };
 
-        // Generate multiple mentions per day for realistic data
         const mentionsData = [];
-        dates.forEach((date, dayIndex) => {
-          const mentionsPerDay = Math.max(1, Math.round(dailyMentions / 10)); // Sample of daily mentions
-          for (let i = 0; i < mentionsPerDay; i++) {
-            const mentionIndex = (dayIndex * mentionsPerDay + i) % sampleMentions.length;
-            const platform = platforms[mentionIndex % platforms.length];
-            const mention = sampleMentions[mentionIndex];
-            const sentiment = sentiments[mentionIndex % sentiments.length];
+        
+        // 1. First, push all actual crawled searchResults if available
+        if (currentBrand?.searchResults && Array.isArray(currentBrand.searchResults)) {
+          currentBrand.searchResults.forEach(m => {
+            const date = m.timestamp ? m.timestamp.split('T')[0] : new Date().toISOString().split('T')[0];
+            const platform = m.platform ? m.platform.charAt(0).toUpperCase() + m.platform.slice(1) : 'Web';
+            const text = m.text || m.title || '';
+            const isNegative = text.toLowerCase().includes('bad') || text.toLowerCase().includes('fail') || text.toLowerCase().includes('frustrat') || text.toLowerCase().includes('problem');
+            const isPositive = text.toLowerCase().includes('love') || text.toLowerCase().includes('great') || text.toLowerCase().includes('cool') || text.toLowerCase().includes('good');
+            const sentiment = isNegative ? 'Negative' : (isPositive ? 'Positive' : 'Neutral');
             const score = sentiment === 'Positive' ? (0.7 + Math.random() * 0.3).toFixed(2) :
               sentiment === 'Negative' ? (Math.random() * 0.4).toFixed(2) :
                 (0.4 + Math.random() * 0.2).toFixed(2);
-            const engagement = Math.round(Math.random() * (filteredKPIs.totalMentions / 20));
-            const location = ['US', 'UK', 'CA', 'AU', 'DE', 'FR', 'JP', 'BR'][mentionIndex % 8];
+            const engagement = Math.round(Math.random() * 5);
+            const location = 'Global';
+            
+            mentionsData.push([date, platform, text, sentiment, score, engagement, location]);
+          });
+        }
+        
+        // 2. Generate templates to match consistent daily volume
+        dailyRecords.forEach((record) => {
+          const actualForDay = mentionsData.filter(m => m[0] === record.date).length;
+          const needed = Math.max(0, record.volume - actualForDay);
+          
+          for (let i = 0; i < needed; i++) {
+            const dayIndex = dates.indexOf(record.date);
 
-            mentionsData.push([date, platform, mention, sentiment, score, engagement, location]);
+            // Determine sentiment bucket first, then pick matching template text
+            let sentiment = 'Neutral';
+            if (i < record.positive) {
+              sentiment = 'Positive';
+            } else if (i < record.positive + record.negative) {
+              sentiment = 'Negative';
+            }
+
+            const pool = templatesByBucket[sentiment];
+            const templateIndex = (dayIndex * 10 + i) % pool.length;
+            const mention = pool[templateIndex];
+
+            const platformIndex = (dayIndex * 10 + i);
+            let platform = platforms[platformIndex % platforms.length];
+            if (currentBrand?.platformStats && typeof currentBrand.platformStats === 'object') {
+              const stats = Object.keys(currentBrand.platformStats);
+              if (stats.length > 0) {
+                platform = stats[platformIndex % stats.length];
+                platform = platform.charAt(0).toUpperCase() + platform.slice(1);
+              }
+            }
+
+            const score = sentiment === 'Positive' ? (0.7 + Math.random() * 0.3).toFixed(2) :
+              sentiment === 'Negative' ? (Math.random() * 0.4).toFixed(2) :
+                (0.4 + Math.random() * 0.2).toFixed(2);
+            const engagement = Math.round(Math.random() * 10);
+            const location = ['US', 'UK', 'CA', 'AU', 'DE', 'FR', 'JP', 'BR'][platformIndex % 8];
+
+            mentionsData.push([record.date, platform, mention, sentiment, score, engagement, location]);
           }
         });
 
-        return mentionsData;
+        return mentionsData.sort((a, b) => new Date(b[0]) - new Date(a[0]));
       },
 
-      sentiment: () => dates.map((date, i) => {
-        const totalDaily = Math.max(1, dailyMentions + Math.round((Math.random() - 0.5) * 20));
-        const positive = Math.round(totalDaily * (basePositive / 100));
-        const negative = Math.round(totalDaily * (baseNegative / 100));
-        const neutral = totalDaily - positive - negative;
-        const overallSentiment = Math.round((positive / totalDaily) * 100);
-        const rage = Math.max(0, 100 - overallSentiment);
-
-        return [date, positive, negative, neutral, overallSentiment, rage];
+      sentiment: () => dailyRecords.map(record => {
+        const overallSentiment = record.volume > 0 ? Math.round((record.positive / record.volume) * 100) : 0;
+        // Rage must be derived from this day's sentiment, not the global base
+        const dailyRage = 100 - overallSentiment;
+        return [record.date, record.positive, record.negative, record.neutral, overallSentiment, dailyRage];
       }),
 
       trends: () => {
         const topics = ['Product Quality', 'Customer Service', 'Pricing', 'Features', 'User Experience', 'Support', 'Delivery', 'Design', 'Performance', 'Value'];
-        const platforms = ['Twitter: 35%', 'Reddit: 30%', 'Facebook: 20%', 'Instagram: 15%'];
         const keywords = ['quality, great', 'service, help', 'price, cost', 'feature, new', 'experience, user', 'support, issue', 'delivery, fast', 'design, beautiful', 'performance, speed', 'value, worth'];
 
-        // Generate trends for each day (or weekly for longer periods)
+        const getPlatformDist = () => {
+          if (currentBrand?.platformStats && typeof currentBrand.platformStats === 'object') {
+            const stats = Object.entries(currentBrand.platformStats);
+            const total = stats.reduce((sum, [, count]) => sum + count, 0);
+            if (total > 0) {
+              return stats
+                .map(([platform, count]) => {
+                  const pct = Math.round((count / total) * 100);
+                  const name = platform.charAt(0).toUpperCase() + platform.slice(1);
+                  return `${name}: ${pct}%`;
+                })
+                .join(', ');
+            }
+          }
+          return ['Twitter: 35%', 'Reddit: 30%', 'Facebook: 20%', 'Instagram: 15%'].join(', ');
+        };
+
+        const platformDist = getPlatformDist();
         const trendsData = [];
-        const isLongPeriod = daysBack > 30;
-        const interval = isLongPeriod ? 7 : 1; // Weekly for 90d, daily for shorter periods
+        const isLongPeriod = dates.length > 30;
+        const interval = isLongPeriod ? 7 : 1; 
 
         for (let i = 0; i < dates.length; i += interval) {
           const date = dates[i];
-          const topicsForPeriod = isLongPeriod ? 3 : 1; // More topics for weekly data
+          const record = dailyRecords[i];
+          const volume = record ? record.volume : Math.round(totalVolume / dates.length);
+          const topicsForPeriod = isLongPeriod ? 3 : 1; 
 
           for (let j = 0; j < topicsForPeriod; j++) {
             const topicIndex = (Math.floor(i / interval) * topicsForPeriod + j) % topics.length;
             const topic = topics[topicIndex];
-            const volume = Math.round(dailyMentions * (0.1 + Math.random() * 0.3) * (isLongPeriod ? 7 : 1));
+            const topicVolume = Math.round(volume * (0.3 + (j * 0.1)));
             const trend = Math.random() > 0.5 ? `+${Math.round(Math.random() * 20)}%` : `-${Math.round(Math.random() * 15)}%`;
-            const platformDist = platforms.join(', ');
             const keywordList = keywords[topicIndex % keywords.length];
 
-            trendsData.push([date, topic, volume, trend, platformDist, keywordList]);
+            trendsData.push([date, topic, topicVolume, trend, platformDist, keywordList]);
           }
         }
 

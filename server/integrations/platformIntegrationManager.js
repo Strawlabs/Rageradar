@@ -1,22 +1,33 @@
 /**
  * Platform Integration Manager
- * Unified interface for all platform integrations
+ * Unified interface for all platform integrations.
+ * Runs integrations in parallel with per-integration timeout ceilings,
+ * tracks health via circuit breakers, and exposes `playstore` as a distinct scan key.
  */
 
 const RedditIntegration = require('./redditIntegration');
 const YouTubeIntegration = require('./youtubeIntegration');
 const ProductHuntIntegration = require('./productHuntIntegration');
 const AppStoreIntegration = require('./appStoreIntegration');
+const HackerNewsIntegration = require('./hackerNewsIntegration');
 const logger = require('../utils/logger');
+
+/** Per-integration timeout ceiling (ms) to prevent one slow platform from blocking the scan */
+const INTEGRATION_TIMEOUT_MS = 30000;
 
 class PlatformIntegrationManager {
     constructor() {
+        // Shared AppStoreIntegration instance for both 'appstore' and 'playstore'
+        this._appStoreInstance = new AppStoreIntegration();
+
         // Initialize all integrations
         this.integrations = {
             reddit: new RedditIntegration(),
             youtube: new YouTubeIntegration(),
             producthunt: new ProductHuntIntegration(),
-            appstore: new AppStoreIntegration()
+            appstore: this._appStoreInstance,
+            playstore: this._appStoreInstance,   // same instance, called with platform: 'android'
+            hackernews: new HackerNewsIntegration()
         };
 
         // Track which integrations are configured
@@ -53,17 +64,20 @@ class PlatformIntegrationManager {
                 limit = 100
             } = options;
 
+            // De-duplicate: if both 'appstore' and 'playstore' are requested, run only 'appstore' (both)
+            const deduped = this._deduplicateAppStorePlatforms(platforms);
+
             logger.info('Searching all platforms', {
                 brandName,
-                platforms,
+                platforms: deduped,
                 limit
             });
 
             const results = {};
             const errors = {};
 
-            // Search each platform in parallel
-            const searchPromises = platforms.map(async (platform) => {
+            // Search each platform in parallel with timeout ceiling
+            const searchPromises = deduped.map(async (platform) => {
                 try {
                     const integration = this.integrations[platform];
 
@@ -72,41 +86,15 @@ class PlatformIntegrationManager {
                         return;
                     }
 
-                    let mentions = [];
-
-                    switch (platform) {
-                        case 'reddit':
-                            mentions = await integration.searchBrand(brandName, {
-                                timeFilter: options.timeFilter || 'week',
-                                limit,
-                                includeComments
-                            });
-                            break;
-
-                        case 'youtube':
-                            mentions = await integration.searchBrand(brandName, {
-                                maxVideos: Math.floor(limit / 2),
-                                maxCommentsPerVideo: 100
-                            });
-                            break;
-
-                        case 'producthunt':
-                            mentions = await integration.searchProduct(brandName, {
-                                limit: Math.floor(limit / 5),
-                                daysAgo: 30
-                            });
-                            break;
-
-                        case 'appstore':
-                            mentions = await integration.searchApp(brandName, {
-                                platform: 'both',
-                                limit
-                            });
-                            break;
-
-                        default:
-                            logger.warn(`Unknown platform: ${platform}`);
-                    }
+                    // Race between the actual search and a timeout
+                    const mentions = await Promise.race([
+                        this._searchPlatform(platform, integration, brandName, {
+                            ...options,
+                            includeComments,
+                            limit
+                        }),
+                        this._timeoutPromise(platform)
+                    ]);
 
                     results[platform] = mentions;
 
@@ -142,7 +130,7 @@ class PlatformIntegrationManager {
             logger.info('Multi-platform search complete', {
                 brandName,
                 totalMentions: allMentions.length,
-                platformsSearched: platforms.length,
+                platformsSearched: deduped.length,
                 platformsSucceeded: Object.keys(results).length,
                 platformsFailed: Object.keys(errors).length
             });
@@ -161,6 +149,83 @@ class PlatformIntegrationManager {
             });
             throw error;
         }
+    }
+
+    /**
+     * Dispatch a search to the appropriate integration method.
+     * @param {string} platform - Platform key
+     * @param {object} integration - Integration instance
+     * @param {string} brandName - Brand name
+     * @param {object} options - Options
+     * @returns {Promise<Array>} Mentions
+     */
+    async _searchPlatform(platform, integration, brandName, options) {
+        switch (platform) {
+            case 'reddit':
+                return await integration.searchBrand(brandName, {
+                    timeFilter: options.timeFilter || 'week',
+                    limit: options.limit,
+                    includeComments: options.includeComments
+                });
+
+            case 'hackernews':
+                return await integration.searchBrand(brandName, {
+                    limit: options.limit
+                });
+
+            case 'youtube':
+                return await integration.searchBrand(brandName, {
+                    maxVideos: Math.floor(options.limit / 2),
+                    maxCommentsPerVideo: 100
+                });
+
+            case 'producthunt':
+                return await integration.searchProduct(brandName, {
+                    limit: Math.floor(options.limit / 5),
+                    daysAgo: 30
+                });
+
+            case 'appstore':
+                return await integration.searchApp(brandName, {
+                    platform: 'both',
+                    limit: options.limit
+                });
+
+            case 'playstore':
+                return await integration.searchApp(brandName, {
+                    platform: 'android',
+                    limit: options.limit
+                });
+
+            default:
+                logger.warn(`Unknown platform: ${platform}`);
+                return [];
+        }
+    }
+
+    /**
+     * Create a timeout promise that rejects after INTEGRATION_TIMEOUT_MS.
+     * @param {string} platform
+     * @returns {Promise}
+     */
+    _timeoutPromise(platform) {
+        return new Promise((_, reject) => {
+            setTimeout(() => {
+                reject(new Error(`${platform} integration timed out after ${INTEGRATION_TIMEOUT_MS}ms`));
+            }, INTEGRATION_TIMEOUT_MS);
+        });
+    }
+
+    /**
+     * If both 'appstore' and 'playstore' are in the list, keep only 'appstore' (covers both).
+     * @param {string[]} platforms
+     * @returns {string[]}
+     */
+    _deduplicateAppStorePlatforms(platforms) {
+        if (platforms.includes('appstore') && platforms.includes('playstore')) {
+            return platforms.filter(p => p !== 'playstore');
+        }
+        return platforms;
     }
 
     /**
@@ -183,33 +248,30 @@ class PlatformIntegrationManager {
 
         logger.info(`Searching ${platform}`, { brandName });
 
-        switch (platform) {
-            case 'reddit':
-                return await integration.searchBrand(brandName, options);
-
-            case 'youtube':
-                return await integration.searchBrand(brandName, options);
-
-            case 'producthunt':
-                return await integration.searchProduct(brandName, options);
-
-            case 'appstore':
-                return await integration.searchApp(brandName, options);
-
-            default:
-                throw new Error(`Unknown platform: ${platform}`);
-        }
+        return this._searchPlatform(platform, integration, brandName, {
+            ...options,
+            limit: options.limit || 100
+        });
     }
 
     /**
-     * Get status of all integrations
+     * Get status of all integrations (includes circuit breaker health)
      * @returns {object} Status of all platforms
      */
     getAllStatus() {
         const status = {};
 
         Object.entries(this.integrations).forEach(([name, integration]) => {
-            status[name] = integration.getStatus();
+            // Avoid duplicate reporting for appstore/playstore (same instance)
+            if (name === 'playstore') {
+                status[name] = {
+                    ...integration.getStatus(),
+                    name: 'playstore',
+                    note: 'Uses same engine as appstore, scoped to Android only'
+                };
+            } else {
+                status[name] = integration.getStatus();
+            }
         });
 
         return {
@@ -220,6 +282,25 @@ class PlatformIntegrationManager {
                 available: this.availableIntegrations
             }
         };
+    }
+
+    /**
+     * Get circuit breaker health for all integrations
+     * @returns {object} Health status per platform
+     */
+    getIntegrationHealth() {
+        const health = {};
+
+        Object.entries(this.integrations).forEach(([name, integration]) => {
+            health[name] = {
+                configured: integration.isConfigured(),
+                circuitBreaker: integration.circuitBreaker
+                    ? integration.circuitBreaker.getStatus()
+                    : { state: 'N/A' }
+            };
+        });
+
+        return health;
     }
 
     /**

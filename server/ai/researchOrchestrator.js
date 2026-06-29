@@ -166,8 +166,8 @@ class ResearchOrchestrator {
                         url: mention.url || '',
                         platform: mention.platform || 'unknown',
                         score: mention.score || mention.votesCount || mention.likeCount || 0,
-                        created: mention.timestamp || new Date(),
-                        timestamp: (mention.timestamp || new Date()).toISOString(),
+                        created: mention.timestamp ? new Date(mention.timestamp) : new Date(),
+                        timestamp: typeof mention.timestamp === 'string' ? mention.timestamp : (mention.timestamp instanceof Date && !isNaN(mention.timestamp.getTime()) ? mention.timestamp.toISOString() : new Date().toISOString()),
                         source: `platform_api_${mention.platform}`,
                         // Preserve platform-specific metadata
                         platformMeta: {

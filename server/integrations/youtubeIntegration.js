@@ -1,15 +1,23 @@
 /**
  * YouTube Integration
- * Fetch video comments using YouTube Data API
+ * Fetch video comments using YouTube Data API.
+ * Includes retry with backoff, circuit breaker, quota handling,
+ * disabled comments handling, and normalized mention output.
  */
 
 const { google } = require('googleapis');
 const logger = require('../utils/logger');
+const { retryWithBackoff, CircuitBreaker, isDeletedContent, isRetriableError } = require('./integrationUtils');
+const { normalize } = require('./mentionNormalizer');
 
 class YouTubeIntegration {
     constructor() {
         this.name = 'youtube';
         this.apiKey = process.env.YOUTUBE_API_KEY;
+        this.circuitBreaker = new CircuitBreaker({ name: 'youtube', failureThreshold: 5, cooldownMs: 60000 });
+
+        // Track quota exhaustion so we can stop early within a single scan
+        this._quotaExhausted = false;
 
         if (this.apiKey) {
             this.youtube = google.youtube({
@@ -24,14 +32,14 @@ class YouTubeIntegration {
      * @returns {boolean}
      */
     isConfigured() {
-        return !!this.apiKey;
+        return !!(this.apiKey && this.apiKey !== 'your_youtube_api_key');
     }
 
     /**
      * Search for brand mentions in YouTube videos and comments
      * @param {string} brandName - Brand name
      * @param {object} options - Search options
-     * @returns {Promise<Array>} Mentions
+     * @returns {Promise<Array>} Normalized mentions
      */
     async searchBrand(brandName, options = {}) {
         if (!this.isConfigured()) {
@@ -39,6 +47,30 @@ class YouTubeIntegration {
             return [];
         }
 
+        // Reset quota flag at start of each scan
+        this._quotaExhausted = false;
+
+        return this.circuitBreaker.exec(async () => {
+            return retryWithBackoff(
+                () => this._doSearch(brandName, options),
+                {
+                    maxRetries: 2,
+                    baseDelay: 2000,
+                    shouldRetry: (error) => {
+                        // Don't retry quota errors
+                        if (error.code === 403 || error.message?.includes('quota')) return false;
+                        return isRetriableError(error);
+                    },
+                    label: 'YouTube.searchBrand'
+                }
+            );
+        });
+    }
+
+    /**
+     * Internal search implementation
+     */
+    async _doSearch(brandName, options = {}) {
         try {
             const {
                 maxVideos = 50,
@@ -67,8 +99,16 @@ class YouTubeIntegration {
             const videos = videoResponse.data.items || [];
             const mentions = [];
 
-            // Get comments for each video
+            // Get comments for each video (stop if quota exhausted)
             for (const video of videos) {
+                if (this._quotaExhausted) {
+                    logger.warn('YouTube quota exhausted, skipping remaining videos', {
+                        processed: mentions.length,
+                        remaining: videos.length - videos.indexOf(video)
+                    });
+                    break;
+                }
+
                 try {
                     const comments = await this.getVideoComments(video.id.videoId, maxCommentsPerVideo);
                     mentions.push(...comments.map(comment => ({
@@ -78,6 +118,12 @@ class YouTubeIntegration {
                         videoPublishedAt: video.snippet.publishedAt
                     })));
                 } catch (error) {
+                    if (this._isQuotaError(error)) {
+                        this._quotaExhausted = true;
+                        logger.warn('YouTube API quota exhausted', { brandName });
+                        break;
+                    }
+
                     logger.warn('Failed to fetch comments for video', {
                         videoId: video.id.videoId,
                         error: error.message
@@ -85,13 +131,19 @@ class YouTubeIntegration {
                 }
             }
 
+            // Normalize all mentions
+            const normalized = mentions
+                .filter(m => !isDeletedContent(m.text))
+                .map(m => normalize('youtube', m));
+
             logger.info('YouTube search complete', {
                 brandName,
                 videosSearched: videos.length,
-                commentsFound: mentions.length
+                commentsFound: normalized.length,
+                quotaExhausted: this._quotaExhausted
             });
 
-            return mentions;
+            return normalized;
 
         } catch (error) {
             logger.error('YouTube search failed', {
@@ -99,8 +151,13 @@ class YouTubeIntegration {
                 brandName
             });
 
-            if (error.code === 403) {
-                throw new Error('YouTube API quota exceeded or invalid API key');
+            if (this._isQuotaError(error)) {
+                this._quotaExhausted = true;
+                throw new Error('YouTube API quota exceeded. Daily limit reached.');
+            }
+
+            if (error.code === 400) {
+                throw new Error('YouTube API bad request. Check search parameters.');
             }
 
             throw error;
@@ -108,10 +165,20 @@ class YouTubeIntegration {
     }
 
     /**
+     * Check if an error is a quota/permission error
+     */
+    _isQuotaError(error) {
+        if (error.code === 403) return true;
+        if (error.response?.status === 403) return true;
+        const msg = error.message?.toLowerCase() || '';
+        return msg.includes('quota') || msg.includes('exceeded') || msg.includes('limit');
+    }
+
+    /**
      * Get comments from a video
      * @param {string} videoId - Video ID
      * @param {number} maxResults - Max comments to fetch
-     * @returns {Promise<Array>} Comments
+     * @returns {Promise<Array>} Raw comments (normalized upstream)
      */
     async getVideoComments(videoId, maxResults = 100) {
         try {
@@ -125,33 +192,44 @@ class YouTubeIntegration {
 
             const comments = response.data.items || [];
 
-            return comments.map(item => {
-                const comment = item.snippet.topLevelComment.snippet;
-                return {
-                    platform: 'youtube',
-                    type: 'comment',
-                    id: item.id,
-                    text: comment.textDisplay,
-                    author: comment.authorDisplayName,
-                    authorChannelUrl: comment.authorChannelUrl,
-                    likeCount: comment.likeCount,
-                    videoId: videoId,
-                    url: `https://youtube.com/watch?v=${videoId}&lc=${item.id}`,
-                    timestamp: new Date(comment.publishedAt),
-
-                    metadata: {
-                        replyCount: item.snippet.totalReplyCount,
-                        canRate: comment.canRate,
-                        viewerRating: comment.viewerRating
-                    }
-                };
-            });
+            return comments
+                .filter(item => {
+                    const text = item.snippet?.topLevelComment?.snippet?.textDisplay;
+                    return text && !isDeletedContent(text);
+                })
+                .map(item => {
+                    const comment = item.snippet.topLevelComment.snippet;
+                    return {
+                        platform: 'youtube',
+                        type: 'comment',
+                        id: item.id,
+                        text: comment.textDisplay,
+                        author: comment.authorDisplayName,
+                        authorChannelUrl: comment.authorChannelUrl || '',
+                        likeCount: comment.likeCount,
+                        videoId: videoId,
+                        url: `https://youtube.com/watch?v=${videoId}&lc=${item.id}`,
+                        timestamp: new Date(comment.publishedAt),
+                        metadata: {
+                            replyCount: item.snippet.totalReplyCount,
+                            canRate: comment.canRate,
+                            viewerRating: comment.viewerRating
+                        }
+                    };
+                });
         } catch (error) {
             // Comments might be disabled
-            if (error.code === 403 && error.message.includes('disabled')) {
+            if (error.code === 403 && error.message?.includes('disabled')) {
                 logger.debug('Comments disabled for video', { videoId });
                 return [];
             }
+
+            // Private or unlisted video
+            if (error.code === 404 || error.code === 403) {
+                logger.debug('Video not accessible (private/unlisted/deleted)', { videoId });
+                return [];
+            }
+
             throw error;
         }
     }
@@ -205,7 +283,9 @@ class YouTubeIntegration {
             cost: 'Free',
             quota: '10,000 units per day',
             features: 'Video search, comment extraction',
-            note: 'Comment search costs 100 units per video'
+            note: 'Comment search costs 100 units per video',
+            quotaExhausted: this._quotaExhausted,
+            circuitBreaker: this.circuitBreaker.getStatus()
         };
     }
 }
