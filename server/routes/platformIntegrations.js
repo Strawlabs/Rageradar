@@ -81,11 +81,13 @@ router.get('/health', async (req, res) => {
         }
 
         const platformStatus = integrationManager ? integrationManager.getAllStatus() : {};
+        const circuitBreakerHealth = integrationManager ? integrationManager.getIntegrationHealth() : {};
 
         res.json({
             success: true,
             searchProviders: providerHealth,
             platforms: platformStatus,
+            circuitBreakers: circuitBreakerHealth,
             timestamp: new Date().toISOString()
         });
     } catch (error) {
@@ -112,7 +114,7 @@ router.post('/scan/:platform', async (req, res) => {
             return res.status(503).json({ error: 'Platform Integration Manager not initialized' });
         }
 
-        const validPlatforms = ['reddit', 'youtube', 'producthunt', 'appstore'];
+        const validPlatforms = ['reddit', 'youtube', 'producthunt', 'appstore', 'playstore', 'hackernews'];
         if (!validPlatforms.includes(platform)) {
             return res.status(400).json({
                 error: `Invalid platform: ${platform}`,
@@ -317,7 +319,9 @@ function getRequiredKeys(platform) {
         reddit: ['REDDIT_CLIENT_ID', 'REDDIT_CLIENT_SECRET', 'REDDIT_REFRESH_TOKEN'],
         youtube: ['YOUTUBE_API_KEY'],
         producthunt: ['PRODUCT_HUNT_TOKEN'],
-        appstore: [] // No keys needed
+        appstore: [], // No keys needed
+        playstore: [], // No keys needed — uses web scraping
+        hackernews: [] // No keys needed
     };
     return keyMap[platform] || [];
 }

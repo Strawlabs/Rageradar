@@ -1,35 +1,24 @@
 /**
  * App Store Integration
- * Scrape reviews from iOS App Store and Google Play Store
+ * Scrape reviews from iOS App Store and Google Play Store.
+ * Uses shared retry/circuit breaker from integrationUtils,
+ * and normalizes all mentions through mentionNormalizer.
  */
 
 const appStore = require('app-store-scraper');
 const gplay = require('google-play-scraper').default || require('google-play-scraper');
 const logger = require('../utils/logger');
+const { retryWithBackoff, CircuitBreaker, isDeletedContent, isRetriableError } = require('./integrationUtils');
+const { normalize } = require('./mentionNormalizer');
 
 class AppStoreIntegration {
     constructor() {
         this.name = 'appstore';
-        
+        this.circuitBreaker = new CircuitBreaker({ name: 'appstore', failureThreshold: 5, cooldownMs: 60000 });
+
         // Simple in-memory cache to avoid hammering stores during analysis (5 min TTL)
         this._cache = new Map();
         this._cacheTTL = 5 * 60 * 1000; // 5 minutes
-    }
-
-    /**
-     * Retry a function with exponential backoff
-     */
-    async _retry(fn, maxRetries = 3, baseDelay = 1000) {
-        for (let attempt = 0; attempt <= maxRetries; attempt++) {
-            try {
-                return await fn();
-            } catch (error) {
-                if (attempt === maxRetries) throw error;
-                const delay = baseDelay * Math.pow(2, attempt);
-                logger.warn(`App Store retry ${attempt + 1}/${maxRetries}, waiting ${delay}ms`, { error: error.message });
-                await new Promise(resolve => setTimeout(resolve, delay));
-            }
-        }
     }
 
     /**
@@ -58,72 +47,90 @@ class AppStoreIntegration {
      * Search for app and get reviews
      * @param {string} appName - App name or ID
      * @param {object} options - Search options
-     * @returns {Promise<Array>} Reviews
+     * @returns {Promise<Array>} Normalized reviews
      */
     async searchApp(appName, options = {}) {
-        try {
-            const {
-                platform = 'both', // ios, android, both
-                country = 'us',
-                limit = 100
-            } = options;
+        return this.circuitBreaker.exec(async () => {
+            try {
+                const {
+                    platform = 'both', // ios, android, both
+                    country = 'us',
+                    limit = 100
+                } = options;
 
-            logger.info('Searching app stores', {
-                appName,
-                platform,
-                country,
-                limit
-            });
+                logger.info('Searching app stores', {
+                    appName,
+                    platform,
+                    country,
+                    limit
+                });
 
-            const mentions = [];
+                const mentions = [];
 
-            // Search iOS App Store (with retry + cache)
-            if (platform === 'ios' || platform === 'both') {
-                try {
-                    const iosReviews = await this._cached(
-                        `ios_${appName}_${country}`,
-                        () => this._retry(() => this.getIOSReviews(appName, { country, limit }))
-                    );
-                    mentions.push(...iosReviews);
-                } catch (error) {
-                    logger.warn('iOS App Store search failed after retries', { error: error.message });
+                // Search iOS App Store (with retry + cache)
+                if (platform === 'ios' || platform === 'both') {
+                    try {
+                        const iosReviews = await this._cached(
+                            `ios_${appName}_${country}`,
+                            () => retryWithBackoff(
+                                () => this.getIOSReviews(appName, { country, limit }),
+                                {
+                                    maxRetries: 3,
+                                    baseDelay: 1000,
+                                    shouldRetry: isRetriableError,
+                                    label: 'AppStore.iOS'
+                                }
+                            )
+                        );
+                        mentions.push(...iosReviews);
+                    } catch (error) {
+                        logger.warn('iOS App Store search failed after retries', { error: error.message });
+                    }
                 }
-            }
 
-            // Search Google Play Store (with retry + cache)
-            if (platform === 'android' || platform === 'both') {
-                try {
-                    const androidReviews = await this._cached(
-                        `android_${appName}_${country}`,
-                        () => this._retry(() => this.getAndroidReviews(appName, { country, limit }))
-                    );
-                    mentions.push(...androidReviews);
-                } catch (error) {
-                    logger.warn('Google Play Store search failed after retries', { error: error.message });
+                // Search Google Play Store (with retry + cache)
+                if (platform === 'android' || platform === 'both') {
+                    try {
+                        const androidReviews = await this._cached(
+                            `android_${appName}_${country}`,
+                            () => retryWithBackoff(
+                                () => this.getAndroidReviews(appName, { country, limit }),
+                                {
+                                    maxRetries: 3,
+                                    baseDelay: 1000,
+                                    shouldRetry: isRetriableError,
+                                    label: 'AppStore.Android'
+                                }
+                            )
+                        );
+                        mentions.push(...androidReviews);
+                    } catch (error) {
+                        logger.warn('Google Play Store search failed after retries', { error: error.message });
+                    }
                 }
+
+                logger.info('App store search complete', {
+                    appName,
+                    reviewsFound: mentions.length
+                });
+
+                return mentions;
+
+            } catch (error) {
+                logger.error('App store search failed', {
+                    error: error.message,
+                    appName
+                });
+                throw error;
             }
-
-            logger.info('App store search complete', {
-                appName,
-                reviewsFound: mentions.length
-            });
-
-            return mentions;
-
-        } catch (error) {
-            logger.error('App store search failed', {
-                error: error.message,
-                appName
-            });
-            throw error;
-        }
+        });
     }
 
     /**
      * Get iOS App Store reviews
      * @param {string} appName - App name or ID
      * @param {object} options - Options
-     * @returns {Promise<Array>} Reviews
+     * @returns {Promise<Array>} Normalized reviews
      */
     async getIOSReviews(appName, options = {}) {
         try {
@@ -149,28 +156,31 @@ class AppStoreIntegration {
                 sort: appStore.sort.RECENT
             });
 
-            return reviews.map(review => ({
-                platform: 'app_store',
-                type: 'review',
-                id: review.id,
-                title: review.title,
-                text: review.text,
-                author: review.userName,
-                rating: review.score,
-                url: app.url,
-                timestamp: new Date(review.date),
-
-                metadata: {
-                    appId: app.id,
-                    appName: app.title,
-                    appVersion: review.version,
-                    voteSum: review.voteSum,
-                    voteCount: review.voteCount
-                }
-            }));
+            return reviews
+                .filter(review => !isDeletedContent(review.text))
+                .map(review => normalize('app_store', {
+                    id: review.id,
+                    title: review.title,
+                    text: review.text,
+                    author: review.userName,
+                    rating: review.score,
+                    url: app.url,
+                    timestamp: new Date(review.updated || review.date || Date.now()),
+                    metadata: {
+                        appId: app.id,
+                        appName: app.title,
+                        appVersion: review.version,
+                        voteSum: review.voteSum,
+                        voteCount: review.voteCount
+                    }
+                }));
         } catch (error) {
+            if (this._isAppNotFoundError(error)) {
+                logger.warn('iOS app not found in store', { appName });
+                return [];
+            }
             logger.error('Failed to get iOS reviews', { error: error.message, appName });
-            return [];
+            throw error;
         }
     }
 
@@ -178,7 +188,7 @@ class AppStoreIntegration {
      * Get Android Google Play Store reviews
      * @param {string} appName - App name or package ID
      * @param {object} options - Options
-     * @returns {Promise<Array>} Reviews
+     * @returns {Promise<Array>} Normalized reviews
      */
     async getAndroidReviews(appName, options = {}) {
         try {
@@ -213,8 +223,11 @@ class AppStoreIntegration {
             // 3. Smart fallbacks for common brand names if search failed (due to Play Store changes)
             if (!app) {
                 const commonGuesses = [
-                    `com.${appName.toLowerCase()}.android`,
+                    `com.${appName}`,
                     `com.${appName.toLowerCase()}`,
+                    `com.${appName}.android`,
+                    `com.${appName.toLowerCase()}.android`,
+                    `com.meta.${appName}`,
                     `com.meta.${appName.toLowerCase()}`
                 ];
                 for (const appId of commonGuesses) {
@@ -244,29 +257,43 @@ class AppStoreIntegration {
                 country: options.country || 'us'
             });
 
-            return reviews.data.map(review => ({
-                platform: 'play_store',
-                type: 'review',
-                id: review.id,
-                text: review.text,
-                author: review.userName,
-                rating: review.score,
-                url: app.url,
-                timestamp: new Date(review.date),
-
-                metadata: {
-                    appId: app.appId,
-                    appName: app.title,
-                    appVersion: review.version,
-                    thumbsUp: review.thumbsUp,
-                    replyDate: review.replyDate,
-                    replyText: review.replyText
-                }
-            }));
+            return reviews.data
+                .filter(review => !isDeletedContent(review.text))
+                .map(review => normalize('play_store', {
+                    id: review.id,
+                    text: review.text,
+                    author: review.userName,
+                    rating: review.score,
+                    url: app.url,
+                    timestamp: new Date(review.date || Date.now()),
+                    metadata: {
+                        appId: app.appId,
+                        appName: app.title,
+                        appVersion: review.version,
+                        thumbsUp: review.thumbsUp,
+                        replyDate: review.replyDate,
+                        replyText: review.replyText
+                    }
+                }));
         } catch (error) {
+            if (this._isAppNotFoundError(error)) {
+                logger.warn('Android app not found in Play Store', { appName });
+                return [];
+            }
             logger.error('Failed to get Android reviews', { error: error.message, appName });
-            return [];
+            throw error;
         }
+    }
+
+    /**
+     * Detect "app not found" vs "store unavailable" errors
+     * @param {Error} error
+     * @returns {boolean}
+     */
+    _isAppNotFoundError(error) {
+        const msg = (error.message || '').toLowerCase();
+        return msg.includes('not found') || msg.includes('no results') ||
+               msg.includes('app not found') || msg.includes('404');
     }
 
     /**
@@ -299,7 +326,8 @@ class AppStoreIntegration {
             cost: 'Free (scraping)',
             rateLimit: 'None (but use responsibly)',
             features: 'iOS App Store and Google Play Store reviews',
-            note: 'No API key required - uses web scraping'
+            note: 'No API key required - uses web scraping',
+            circuitBreaker: this.circuitBreaker.getStatus()
         };
     }
 }

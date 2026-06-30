@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS public.scan_jobs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES public.users(id) ON DELETE CASCADE,
     brand_name TEXT NOT NULL,
-    scan_type TEXT NOT NULL DEFAULT 'full',          -- 'full', 'web', 'reddit', 'youtube', 'producthunt', 'appstore'
+    scan_type TEXT NOT NULL DEFAULT 'full',          -- 'full', 'web', 'reddit', 'youtube', 'producthunt', 'appstore', 'playstore'
     status TEXT NOT NULL DEFAULT 'pending',           -- 'pending', 'running', 'completed', 'failed'
     platforms_scanned JSONB DEFAULT '[]'::jsonb,      -- list of platforms that were scanned
     results_count INTEGER DEFAULT 0,                  -- total mentions found
