@@ -272,6 +272,7 @@ class ResearchOrchestrator {
                 signal.confidence = emotionRes.confidence;
                 signal.isAmbiguous = emotionRes.isAmbiguous;
                 signal.isSarcastic = emotionRes.isSarcastic;
+                signal.isShortText = emotionRes.isShortText || false;
 
                 // Pre-calculate individual mention rage index
                 const mentionRage = this.rageCalculator.calculateForMention(signal.emotions, signal);
@@ -281,6 +282,7 @@ class ResearchOrchestrator {
                 signal.emotions = [];
                 signal.confidence = 'low';
                 signal.rageIndex = 40;
+                signal.isShortText = false;
             }
         }
 
@@ -396,11 +398,26 @@ class ResearchOrchestrator {
             }, {}),
             topPositivePosts: topPositive,
             topNegativePosts: topNegative,
-            searchResults: enrichedSignals.slice(0, 10).map(s => ({
+            searchResults: enrichedSignals.map(s => ({
+                id: s.id,
                 text: s.content,
+                title: s.title || '',
                 url: s.url,
                 platform: s.platform,
-                timestamp: s.publishedAt
+                timestamp: s.publishedAt,
+                author: s.author || 'Anonymous',
+                authorUrl: s.authorUrl || '',
+                verified: s.verified || false,
+                location: s.location || '',
+                sentiment: s.primaryEmotion === 'joy' || s.primaryEmotion === 'love' || s.primaryEmotion === 'admiration' || s.primaryEmotion === 'excitement' || s.primaryEmotion === 'gratitude' ? 'positive' :
+                           s.primaryEmotion === 'neutral' || s.primaryEmotion === 'surprise' ? 'neutral' : 'negative',
+                emotion: s.primaryEmotion || 'neutral',
+                confidence: s.confidence || 'low',
+                emotions: s.emotions || [],
+                isSarcastic: s.isSarcastic || false,
+                isAmbiguous: s.isAmbiguous || false,
+                isShortText: s.isShortText || false,
+                engagement: s.engagement || s.platformMeta || { upvotes: 0, downvotes: 0, comments: 0, ratio: null, rating: null }
             })),
             analysisDate: new Date().toISOString(),
             isDemo: false,

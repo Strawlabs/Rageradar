@@ -50,11 +50,22 @@ class SignalEnrichmentEngine {
                 platform: mention.platform || 'web',
                 publishedAt: mention.publishedAt || mention.timestamp || mention.date || new Date().toISOString(),
                 collectedAt: new Date().toISOString(),
-                platformMeta: mention.platformMeta || {
+                author: mention.author || 'Anonymous',
+                authorUrl: mention.authorUrl || '',
+                verified: mention.verified || false,
+                location: mention.location || '',
+                engagement: mention.engagement || {
                     upvotes: mention.upvotes || 0,
-                    likes: mention.likes || 0,
-                    replies: mention.replies || 0,
-                    commentCount: mention.commentCount || 0
+                    downvotes: mention.downvotes || 0,
+                    comments: mention.comments || 0,
+                    ratio: mention.ratio || null,
+                    rating: mention.rating || null
+                },
+                platformMeta: mention.platformMeta || {
+                    upvotes: mention.upvotes || (mention.engagement && mention.engagement.upvotes) || 0,
+                    likes: mention.likes || (mention.engagement && mention.engagement.likes) || 0,
+                    replies: mention.replies || (mention.engagement && mention.engagement.replies) || 0,
+                    commentCount: mention.commentCount || (mention.engagement && mention.engagement.comments) || 0
                 },
                 content: normResult.content,
                 qualityScore: normResult.qualityScore

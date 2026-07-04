@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 
@@ -8,8 +8,15 @@ const Auth = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const { login } = useAuth();
+  const { login, currentUser, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (currentUser && !authLoading) {
+      console.log('🚪 Auth: User is authenticated. Redirecting to /analyze');
+      navigate('/analyze');
+    }
+  }, [currentUser, authLoading, navigate]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -18,10 +25,6 @@ const Auth = () => {
       setError('');
       setLoading(true);
       await login(email, password);
-      
-      setTimeout(() => {
-        navigate('/analyze');
-      }, 500);
     } catch (error) {
       setError('Failed to log in');
       console.error(error);

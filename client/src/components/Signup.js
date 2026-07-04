@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 
@@ -14,8 +14,15 @@ const Signup = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const { signup, isMockMode } = useAuth();
+  const { signup, isMockMode, currentUser, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (currentUser && !authLoading) {
+      console.log('🚪 Signup: User is authenticated. Redirecting to /analyze');
+      navigate('/analyze');
+    }
+  }, [currentUser, authLoading, navigate]);
 
   const handleInputChange = (e) => {
     setFormData({
@@ -48,9 +55,7 @@ const Signup = () => {
       });
       
       await signup(formData.email, formData.password, formData);
-      
-      console.log('✅ Signup successful, navigating to analyze page');
-      navigate('/analyze');
+      console.log('✅ Signup successful, waiting for auth redirect...');
     } catch (error) {
       console.error('❌ Signup failed:', error);
       console.error('Error code:', error.code);
