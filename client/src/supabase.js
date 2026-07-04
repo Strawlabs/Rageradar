@@ -13,10 +13,24 @@ let supabaseClient;
 if (isMockMode) {
   console.log('🔧 Supabase Client: Running in LOCAL MOCK MODE (No real Supabase credentials)');
   
+  const authListeners = new Set();
+
   // Helper to get mock user from localStorage
   const getMockUser = () => {
     const saved = localStorage.getItem('rageradar_mock_user');
     return saved ? JSON.parse(saved) : null;
+  };
+
+  const triggerAuthChange = (event) => {
+    const user = getMockUser();
+    const session = user ? { user, access_token: 'mock-token-' + user.email } : null;
+    authListeners.forEach(cb => {
+      try {
+        cb(event, session);
+      } catch (err) {
+        console.error('Error triggering mock auth change callback', err);
+      }
+    });
   };
 
   const getMockUserPlan = (email, uid) => {
@@ -71,6 +85,7 @@ if (isMockMode) {
         };
         localStorage.setItem('rageradar_mock_user', JSON.stringify(mockUser));
         localStorage.setItem('rageradar_mock_user_plan', JSON.stringify(mockPlan));
+        triggerAuthChange('SIGNED_IN');
         return { data: { user: mockUser }, error: null };
       },
       signInWithPassword: async ({ email, password }) => {
@@ -86,12 +101,14 @@ if (isMockMode) {
         const mockPlan = getMockUserPlan(email, uid);
         localStorage.setItem('rageradar_mock_user', JSON.stringify(mockUser));
         localStorage.setItem('rageradar_mock_user_plan', JSON.stringify(mockPlan));
-        return { data: { user: mockUser, session: { access_token: 'mock-token-' + email } }, error: null };
+        triggerAuthChange('SIGNED_IN');
+        return { data: { user: mockUser, session: { access_token: 'mock-token-' + email, user: mockUser } }, error: null };
       },
       signOut: async () => {
         console.log('🔧 Mock Auth: Sign Out');
         localStorage.removeItem('rageradar_mock_user');
         localStorage.removeItem('rageradar_mock_user_plan');
+        triggerAuthChange('SIGNED_OUT');
         return { error: null };
       },
       getSession: async () => {
@@ -106,15 +123,25 @@ if (isMockMode) {
         return { data: { user }, error: null };
       },
       onAuthStateChange: (callback) => {
-        const handler = () => {
-          const user = getMockUser();
-          const session = user ? { user, access_token: 'mock-token-' + user.email } : null;
-          callback(user ? 'SIGNED_IN' : 'SIGNED_OUT', session);
-        };
+        authListeners.add(callback);
+        const user = getMockUser();
+        const session = user ? { user, access_token: 'mock-token-' + user.email } : null;
         // Run once initially
-        setTimeout(handler, 10);
+        setTimeout(() => {
+          if (authListeners.has(callback)) {
+            callback(user ? 'SIGNED_IN' : 'SIGNED_OUT', session);
+          }
+        }, 10);
         // Return dummy unsubscribe
-        return { data: { subscription: { unsubscribe: () => {} } } };
+        return { 
+          data: { 
+            subscription: { 
+              unsubscribe: () => {
+                authListeners.delete(callback);
+              } 
+            } 
+          } 
+        };
       },
       updateUser: async (attributes) => {
         console.log('🔧 Mock Auth: Update User', attributes);

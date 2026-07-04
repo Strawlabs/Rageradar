@@ -180,6 +180,9 @@ class EmotionAnalyzer {
         const platform = (options.platform || '').toLowerCase();
         const starRating = options.starRating || null;
 
+        const words = text.trim().split(/\s+/).filter(Boolean);
+        const isShortText = text.trim().length < 15 || words.length < 3;
+
         // Fallback check
         if (!this.hf) {
             return this.fallbackToBasicSentiment(text, platform, starRating);
@@ -239,11 +242,11 @@ class EmotionAnalyzer {
 
             // Sarcasm Calibration: reduce confidence and offset weights/polarity
             let confidence = primaryEmotion.confidence;
-            if (isSarcastic) {
+            if (isSarcastic || isShortText) {
                 confidence = 'low';
                 finalEmotions.forEach(e => {
                     e.confidence = 'low';
-                    if (e.label === 'joy' || e.label === 'admiration') {
+                    if (isSarcastic && (e.label === 'joy' || e.label === 'admiration')) {
                         e.weight = 0.8; // Treat positive emotions in sarcasm as frustration/anger
                     }
                 });
@@ -256,10 +259,12 @@ class EmotionAnalyzer {
                 emotions: finalEmotions,
                 primaryEmotion: primaryEmotion.label,
                 primaryScore: primaryEmotion.score,
-                confidence: isAmbiguous || isSarcastic ? 'low' : confidence,
+                confidence: isAmbiguous || isSarcastic || isShortText ? 'low' : confidence,
                 emotionDistribution: this.calculateDistribution(finalEmotions),
                 emotionCategory: this.categorizeEmotion(primaryEmotion.label),
                 isSarcastic,
+                isAmbiguous,
+                isShortText,
                 timestamp: new Date()
             };
 
@@ -293,6 +298,8 @@ class EmotionAnalyzer {
     fallbackToBasicSentiment(text, platform = '', starRating = null) {
         const sentiment = this.sentimentAnalyzer.analyzeSentiment(text);
         const isSarcastic = this.detectSarcasm(text);
+        const words = text ? text.trim().split(/\s+/).filter(Boolean) : [];
+        const isShortText = text ? (text.trim().length < 15 || words.length < 3) : false;
 
         let mappedEmotion = 'neutral';
         let weight = 0;
@@ -311,7 +318,7 @@ class EmotionAnalyzer {
         const emotions = [{
             label: mappedEmotion,
             score,
-            confidence: 'fallback',
+            confidence: isShortText ? 'low' : 'fallback',
             weight
         }];
 
@@ -330,10 +337,11 @@ class EmotionAnalyzer {
             emotions,
             primaryEmotion: mappedEmotion,
             primaryScore: score,
-            confidence: 'fallback',
+            confidence: isShortText ? 'low' : 'fallback',
             emotionDistribution: { [mappedEmotion]: 100 },
             emotionCategory: this.categorizeEmotion(mappedEmotion),
             isSarcastic,
+            isShortText,
             fallback: true,
             timestamp: new Date()
         };

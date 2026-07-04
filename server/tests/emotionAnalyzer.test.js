@@ -80,4 +80,11 @@ describe('EmotionAnalyzer', () => {
         analyzer.calibrateEmotions(emotions, 'play_store', 5);
         expect(emotions[1].weight).toBe(-0.75);
     });
+
+    test('should classify very short texts as low confidence and flag isShortText', async () => {
+        const shortText = 'Ok.';
+        const result = await analyzer.analyzeEmotions(shortText);
+        expect(result.isShortText).toBe(true);
+        expect(result.confidence).toBe('low');
+    });
 });

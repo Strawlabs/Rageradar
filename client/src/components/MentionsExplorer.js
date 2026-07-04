@@ -10,23 +10,43 @@ import PageHeader from './shared/PageHeader';
 import axios from 'axios';
 import EmptyState from './shared/EmptyState';
 
-// Helper function to generate mentions data from KPIs
 const generateMentionsFromKPIs = (kpis, brandData, timeRange = '7d') => {
   // 1. If we have real mentions from the brand analysis, use those first!
-  if (brandData?.topMentions && Array.isArray(brandData.topMentions) && brandData.topMentions.length > 0) {
-    console.log('✅ Found real brand mentions, using them in explorer');
-    return brandData.topMentions.map((mention, idx) => ({
-      ...mention,
-      id: mention.id || `real-${idx}`,
-      timestamp: mention.timestamp || new Date().toISOString(),
-      sentiment: mention.sentiment || (mention.rageScore > 60 ? 'negative' : 'positive'),
-      engagement: mention.engagement || {
-        likes: Math.floor(Math.random() * 50),
-        shares: Math.floor(Math.random() * 10),
-        comments: Math.floor(Math.random() * 5),
-        total: Math.floor(Math.random() * 65)
-      }
-    }));
+  const realMentions = brandData?.searchResults || brandData?.topMentions;
+  if (realMentions && Array.isArray(realMentions) && realMentions.length > 0) {
+    console.log('✅ Found real brand mentions, using them in explorer', realMentions.length);
+    return realMentions.map((mention, idx) => {
+      const emotion = mention.emotion || (mention.rageScore > 60 ? 'anger' : 'joy');
+      
+      const likes = mention.engagement?.likes || mention.platformMeta?.likes || 0;
+      const comments = mention.engagement?.comments || mention.engagement?.commentCount || mention.platformMeta?.commentCount || 0;
+      const upvotes = mention.engagement?.upvotes || mention.platformMeta?.upvotes || 0;
+      const replies = mention.engagement?.replies || mention.platformMeta?.replies || 0;
+      const totalEngagement = likes + comments + upvotes + replies || mention.engagement?.total || Math.floor(Math.random() * 10);
+
+      const influence = totalEngagement > 80 ? 'high' : totalEngagement > 40 ? 'medium' : 'low';
+
+      return {
+        ...mention,
+        id: mention.id || `real-${idx}`,
+        text: mention.text || mention.content || '',
+        platform: mention.platform || 'web',
+        timestamp: mention.timestamp || mention.publishedAt || new Date().toISOString(),
+        sentiment: mention.sentiment || (mention.rageIndex > 60 ? 'negative' : 'positive'),
+        emotion: emotion,
+        confidence: mention.confidence !== undefined ? mention.confidence : 'medium',
+        emotions: mention.emotions || [{ label: emotion, score: 0.8, confidence: 'medium' }],
+        keywords: mention.keywords || [],
+        verified: mention.verified || false,
+        influence: mention.influence || influence,
+        engagement: {
+          likes,
+          comments,
+          shares: mention.engagement?.shares || upvotes,
+          total: totalEngagement
+        }
+      };
+    });
   }
 
   const platforms = ['twitter', 'reddit', 'facebook', 'instagram', 'youtube', 'tiktok', 'news', 'forums'];
@@ -353,6 +373,81 @@ const MentionsExplorer = () => {
     );
   };
 
+  const getEmotionBadgeColor = (emotion) => {
+    const list = {
+      joy: 'bg-green-50 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-800 dark:text-green-400',
+      love: 'bg-green-50 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-800 dark:text-green-400',
+      admiration: 'bg-green-50 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-800 dark:text-green-400',
+      satisfaction: 'bg-green-50 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-800 dark:text-green-400',
+      anger: 'bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400',
+      frustration: 'bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400',
+      fury: 'bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400',
+      annoyance: 'bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400',
+      disgust: 'bg-orange-50 border-orange-200 text-orange-700 dark:bg-orange-900/20 dark:border-orange-800 dark:text-orange-400',
+      disappointment: 'bg-orange-50 border-orange-200 text-orange-700 dark:bg-orange-900/20 dark:border-orange-800 dark:text-orange-400',
+      sadness: 'bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-400',
+      fear: 'bg-purple-50 border-purple-200 text-purple-700 dark:bg-purple-900/20 dark:border-purple-800 dark:text-purple-400',
+      surprise: 'bg-pink-50 border-pink-200 text-pink-700 dark:bg-pink-900/20 dark:border-pink-800 dark:text-pink-400'
+    };
+    return list[emotion] || 'bg-slate-50 border-slate-200 text-slate-700 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300';
+  };
+
+  const renderConfidence = (confidence, isSarcastic, isAmbiguous, isShortText) => {
+    let text = '';
+    let colorClass = '';
+    let icon = null;
+    let tooltip = '';
+
+    if (typeof confidence === 'number') {
+      const percentage = Math.round(confidence * 100);
+      text = `${percentage}% confidence`;
+      if (confidence < 0.5) {
+        colorClass = 'text-red-700 bg-red-50 border-red-200 dark:text-red-400 dark:bg-red-900/20 dark:border-red-800';
+        icon = (
+          <span className="mr-1" title="Low confidence classification">⚠️</span>
+        );
+      } else if (confidence < 0.75) {
+        colorClass = 'text-yellow-700 bg-yellow-50 border-yellow-200 dark:text-yellow-400 dark:bg-yellow-900/20 dark:border-yellow-800';
+      } else {
+        colorClass = 'text-green-700 bg-green-50 border-green-200 dark:text-green-400 dark:bg-green-900/20 dark:border-green-800';
+      }
+    } else {
+      const level = String(confidence || 'medium').toLowerCase();
+      if (level === 'high') {
+        text = 'High confidence';
+        colorClass = 'text-green-700 bg-green-50 border-green-200 dark:text-green-400 dark:bg-green-900/20 dark:border-green-800';
+      } else if (level === 'medium') {
+        text = 'Medium confidence';
+        colorClass = 'text-yellow-700 bg-yellow-50 border-yellow-200 dark:text-yellow-400 dark:bg-yellow-900/20 dark:border-yellow-800';
+      } else if (level === 'fallback') {
+        text = 'Rule-based fallback';
+        colorClass = 'text-slate-600 bg-slate-50 border-slate-200 dark:text-slate-400 dark:bg-slate-800 dark:border-slate-700';
+      } else {
+        text = 'Low confidence';
+        colorClass = 'text-red-700 bg-red-50 border-red-200 dark:text-red-400 dark:bg-red-900/20 dark:border-red-800';
+        icon = (
+          <span className="mr-1" title="Low confidence classification">⚠️</span>
+        );
+
+        const reasons = [];
+        if (isSarcastic) reasons.push('Sarcastic tone');
+        if (isAmbiguous) reasons.push('Ambiguous/Mixed tone');
+        if (isShortText) reasons.push('Short text context');
+        if (reasons.length > 0) {
+          tooltip = `Reason: ${reasons.join(', ')}`;
+        }
+      }
+    }
+
+    return (
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${colorClass}`} title={tooltip}>
+        {icon}
+        <span>{text}</span>
+        {tooltip && <span className="ml-1.5 text-[10px] opacity-75 font-normal">{`(${tooltip})`}</span>}
+      </span>
+    );
+  };
+
   const getSentimentColor = (sentiment) => {
     switch (sentiment) {
       case 'positive': return 'bg-green-50 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-800 dark:text-green-400';
@@ -563,19 +658,30 @@ const MentionsExplorer = () => {
                   </p>
 
                   {/* Emotion & Keywords */}
-                  <div className="flex items-center space-x-4">
-                    <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-4 flex-wrap gap-y-2">
+                    <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                       <div className="flex items-center justify-center w-6 h-6">{getEmotionIcon(mention.emotion)}</div>
-                      <div className={`px-3 py-1 rounded-full text-xs font-medium border ${mention.emotion === 'joy' || mention.emotion === 'satisfaction' ? 'bg-green-50 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-800 dark:text-green-400' :
-                        mention.emotion === 'anger' || mention.emotion === 'frustration' ? 'bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400' :
-                          mention.emotion === 'disappointment' || mention.emotion === 'sadness' ? 'bg-yellow-50 border-yellow-200 text-yellow-700 dark:bg-yellow-900/20 dark:border-yellow-800 dark:text-yellow-400' :
-                            'bg-slate-50 border-slate-200 text-slate-700 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300'
-                        }`}>
-                        {mention.emotion}
-                      </div>
-                      <span className="text-sm text-muted-foreground">
-                        {Math.round(mention.confidence * 100)}% confidence
-                      </span>
+                      
+                      {/* Render Multiple Emotions if available */}
+                      {mention.emotions && mention.emotions.length > 0 ? (
+                        mention.emotions.slice(0, 3).map((emo, index) => (
+                          <div
+                            key={index}
+                            className={`px-2.5 py-0.5 rounded-full text-xs font-medium border ${getEmotionBadgeColor(emo.label || emo.emotion)} ${
+                              (emo.label || emo.emotion) === mention.emotion ? 'font-bold ring-1 ring-offset-1 ring-indigo-500 dark:ring-offset-slate-900' : 'opacity-80'
+                            }`}
+                          >
+                            {(emo.label || emo.emotion)} {emo.score !== undefined ? `(${Math.round(emo.score * 100)}%)` : ''}
+                          </div>
+                        ))
+                      ) : (
+                        <div className={`px-3 py-1 rounded-full text-xs font-medium border ${getEmotionBadgeColor(mention.emotion)}`}>
+                          {mention.emotion}
+                        </div>
+                      )}
+                      
+                      {/* Confidence Level Badge */}
+                      {renderConfidence(mention.confidence, mention.isSarcastic, mention.isAmbiguous, mention.isShortText)}
                     </div>
 
                     <div className="flex items-center space-x-2">
