@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useBrand } from '../contexts/BrandContext';
 import { useFilters } from '../contexts/FilterContext';
@@ -33,8 +33,99 @@ import {
   ChevronDown,
   Calendar,
   Filter,
-  Clock
+  Clock,
+  ExternalLink,
+  Brain,
+  Radio,
+  ShieldAlert,
+  ShieldCheck
 } from 'lucide-react';
+
+// ─── Severity Band ────────────────────────────────────────────────────────────
+const SEVERITY_BANDS = [
+  { label: 'Minimal', min: 0,  max: 19, color: 'bg-emerald-500', text: 'text-emerald-700 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950' },
+  { label: 'Low',     min: 20, max: 39, color: 'bg-yellow-400',  text: 'text-yellow-700 dark:text-yellow-400',  bg: 'bg-yellow-50 dark:bg-yellow-950'  },
+  { label: 'Moderate',min: 40, max: 59, color: 'bg-orange-500',  text: 'text-orange-700 dark:text-orange-400',  bg: 'bg-orange-50 dark:bg-orange-950'  },
+  { label: 'High',    min: 60, max: 79, color: 'bg-red-500',     text: 'text-red-700 dark:text-red-400',        bg: 'bg-red-50 dark:bg-red-950'        },
+  { label: 'Critical',min: 80, max: 100,color: 'bg-red-800',     text: 'text-red-900 dark:text-red-300',        bg: 'bg-red-100 dark:bg-red-900/40'    },
+];
+
+const getSeverityBand = (score) => SEVERITY_BANDS.find(b => score >= b.min && score <= b.max) || SEVERITY_BANDS[0];
+
+const RageIndexSeverityBand = ({ rageIndex }) => {
+  const active = getSeverityBand(rageIndex);
+  return (
+    <div className="flex items-center gap-1 rounded-lg overflow-hidden border border-muted">
+      {SEVERITY_BANDS.map((band) => {
+        const isActive = band.label === active.label;
+        return (
+          <div
+            key={band.label}
+            title={`${band.label}: ${band.min}–${band.max}`}
+            className={`flex-1 py-1.5 text-center text-[10px] font-semibold transition-all duration-300 ${
+              isActive
+                ? `${band.color} text-white shadow-sm scale-y-110`
+                : 'bg-muted text-muted-foreground opacity-50'
+            }`}
+          >
+            {band.label}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+// ─── Live Mention Ticker ──────────────────────────────────────────────────────
+const PLATFORM_COLORS = {
+  twitter: 'text-blue-400', reddit: 'text-orange-400', youtube: 'text-red-400',
+  facebook: 'text-blue-600', instagram: 'text-pink-400', tiktok: 'text-purple-400',
+  linkedin: 'text-indigo-400', news: 'text-slate-400', default: 'text-slate-400',
+};
+
+const MentionTicker = ({ mentions }) => {
+  const tickerRef = useRef(null);
+  const [isPaused, setIsPaused] = useState(false);
+
+  const items = (mentions || []).slice(0, 12);
+  if (items.length === 0) return null;
+
+  return (
+    <div
+      className="relative overflow-hidden rounded-lg bg-muted/30 border border-muted"
+      onMouseEnter={() => setIsPaused(true)}
+      onMouseLeave={() => setIsPaused(false)}
+    >
+      <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-background to-transparent z-10 pointer-events-none" />
+      <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-background to-transparent z-10 pointer-events-none" />
+      <div
+        ref={tickerRef}
+        className={`flex gap-4 py-2 px-4 ${ isPaused ? '' : 'animate-[ticker_30s_linear_infinite]' }`}
+        style={{
+          animationPlayState: isPaused ? 'paused' : 'running',
+        }}
+      >
+        {[...items, ...items].map((mention, idx) => {
+          const platformColor = PLATFORM_COLORS[mention.platform] || PLATFORM_COLORS.default;
+          const rageScore = mention.rageIndex || mention.rageScore || 0;
+          const bandColor = getSeverityBand(rageScore).color;
+          return (
+            <div key={idx} className="flex items-center gap-2 shrink-0 max-w-xs">
+              <span className={`text-xs font-semibold uppercase ${platformColor}`}>{mention.platform || 'web'}</span>
+              <span className="text-xs text-muted-foreground truncate max-w-[160px]">
+                {(mention.text || mention.content || '').slice(0, 70)}{(mention.text || mention.content || '').length > 70 ? '…' : ''}
+              </span>
+              {rageScore > 0 && (
+                <span className={`inline-block w-2 h-2 rounded-full ${bandColor} shrink-0`} title={`Rage: ${rageScore}`} />
+              )}
+              <span className="text-muted-foreground/40 shrink-0">|</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
 
 const CleanModernDashboard = () => {
   const { currentUser } = useAuth();
@@ -799,6 +890,164 @@ const CleanModernDashboard = () => {
                 </Card>
               </div>
             </div>
+            {/* ── Rage Index Severity Band ──────────────────────────────── */}
+            {currentBrand && (() => {
+              const adjustedData = getTimeAdjustedData(currentBrand);
+              const ri = adjustedData.rageIndex;
+              const band = getSeverityBand(ri);
+              return (
+                <Card className="overflow-hidden">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Radio className="w-5 h-5" />
+                        Rage Index Severity Band
+                      </div>
+                      <span className={`text-sm font-bold px-3 py-1 rounded-full ${band.bg} ${band.text}`}>
+                        {ri}% — {band.label}
+                      </span>
+                    </CardTitle>
+                    <p className="text-xs text-muted-foreground italic">
+                      Current frustration level across Minimal → Critical spectrum
+                    </p>
+                  </CardHeader>
+                  <CardContent className="pt-1">
+                    <RageIndexSeverityBand rageIndex={ri} />
+                  </CardContent>
+                </Card>
+              );
+            })()}
+
+            {/* ── Active Alerts + Mention Ticker ────────────────────────── */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Active Alerts */}
+              <Card className="lg:col-span-1">
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2">
+                    <ShieldAlert className="w-5 h-5" />
+                    Active Alerts
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {currentBrand ? (() => {
+                    const alerts = [];
+                    if (currentBrand.rageAlert) alerts.push({ label: 'Rage Threshold Exceeded', level: 'critical', icon: AlertTriangle });
+                    if (currentBrand.cautionAlert) alerts.push({ label: 'Elevated Frustration', level: 'warning', icon: Zap });
+                    if (currentBrand.rageIndex >= 80) alerts.push({ label: 'Critical Rage Level', level: 'critical', icon: AlertTriangle });
+                    else if (currentBrand.rageIndex >= 60) alerts.push({ label: 'High Negative Sentiment', level: 'warning', icon: Zap });
+                    return alerts.length > 0 ? (
+                      alerts.map((alert, i) => {
+                        const Icon = alert.icon;
+                        return (
+                          <div key={i} className={`flex items-center gap-3 p-3 rounded-lg border ${
+                            alert.level === 'critical'
+                              ? 'bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800'
+                              : 'bg-orange-50 dark:bg-orange-950 border-orange-200 dark:border-orange-800'
+                          }`}>
+                            <Icon className={`w-4 h-4 shrink-0 ${
+                              alert.level === 'critical' ? 'text-red-600' : 'text-orange-500'
+                            }`} />
+                            <span className={`text-sm font-medium ${
+                              alert.level === 'critical'
+                                ? 'text-red-700 dark:text-red-400'
+                                : 'text-orange-700 dark:text-orange-400'
+                            }`}>{alert.label}</span>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="flex items-center gap-3 p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800">
+                        <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span className="text-sm font-medium text-emerald-700 dark:text-emerald-400">No active alerts</span>
+                      </div>
+                    );
+                  })() : (
+                    <p className="text-sm text-muted-foreground">Analyze a brand to see alerts</p>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* AI Commentary Feed */}
+              <Card className="lg:col-span-2">
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2">
+                    <Brain className="w-5 h-5" />
+                    AI Commentary
+                    {currentBrand && <Badge variant="outline" className="text-xs animate-pulse">LIVE</Badge>}
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground italic">AI-generated insights based on latest brand data</p>
+                </CardHeader>
+                <CardContent>
+                  {currentBrand ? (() => {
+                    // Pull insights from brand object — set by orchestrator
+                    const rawInsights = currentBrand.insights || currentBrand.aiInsights || currentBrand.aiCommentary;
+                    const insightsList = Array.isArray(rawInsights)
+                      ? rawInsights.slice(0, 3)
+                      : typeof rawInsights === 'string'
+                        ? [rawInsights]
+                        : null;
+
+                    if (insightsList && insightsList.length > 0) {
+                      return (
+                        <ul className="space-y-3">
+                          {insightsList.map((insight, i) => (
+                            <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                              <span className="mt-0.5 w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold shrink-0">{i + 1}</span>
+                              <span>{typeof insight === 'string' ? insight : (insight.text || insight.content || JSON.stringify(insight))}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      );
+                    }
+
+                    // Fallback: derive commentary from brand numbers
+                    const ri = currentBrand.rageIndex || 0;
+                    const band = getSeverityBand(ri);
+                    const totalMentions = currentBrand.totalMentions || 0;
+                    const platforms = Object.keys(currentBrand.platformStats || {}).length;
+                    return (
+                      <ul className="space-y-3">
+                        <li className="flex items-start gap-2 text-sm text-muted-foreground">
+                          <span className="mt-0.5 w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold shrink-0">1</span>
+                          <span>Rage Index is currently <strong>{ri}%</strong> — placing {capitalizeBrandName(currentBrand.brandName)} in the <strong>{band.label}</strong> severity band.</span>
+                        </li>
+                        {totalMentions > 0 && (
+                          <li className="flex items-start gap-2 text-sm text-muted-foreground">
+                            <span className="mt-0.5 w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold shrink-0">2</span>
+                            <span>Found <strong>{totalMentions.toLocaleString()} mentions</strong> across {platforms > 0 ? `${platforms} platforms` : 'multiple platforms'}.</span>
+                          </li>
+                        )}
+                        {currentBrand.themes && currentBrand.themes.length > 0 && (
+                          <li className="flex items-start gap-2 text-sm text-muted-foreground">
+                            <span className="mt-0.5 w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold shrink-0">3</span>
+                            <span>Top conversation themes: <strong>{currentBrand.themes.slice(0, 3).map(t => typeof t === 'string' ? t : (t.theme || t.name || '')).filter(Boolean).join(', ')}</strong>.</span>
+                          </li>
+                        )}
+                      </ul>
+                    );
+                  })() : (
+                    <p className="text-sm text-muted-foreground">Analyze a brand to generate AI commentary.</p>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* ── Live Mention Ticker ───────────────────────────────────── */}
+            {currentBrand?.searchResults?.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2">
+                    <Activity className="w-5 h-5" />
+                    Live Mention Ticker
+                    <Badge variant="outline" className="text-xs animate-pulse">LIVE</Badge>
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground italic">Latest mentions scrolling in real time — hover to pause</p>
+                </CardHeader>
+                <CardContent>
+                  <MentionTicker mentions={currentBrand.searchResults} />
+                </CardContent>
+              </Card>
+            )}
           </>
         )}
       </div>

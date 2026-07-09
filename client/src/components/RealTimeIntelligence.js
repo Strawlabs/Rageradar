@@ -325,20 +325,34 @@ const RealTimeIntelligence = () => {
     initializeData();
   }, [brandName, currentUser, currentBrand]);
 
+  // Real data polling: re-sync chart whenever currentBrand updates from BrandContext polling
+  useEffect(() => {
+    if (!hasValidBrand || !currentBrand) return;
+    const realTimeData = generateRealTimeDataFromBrand(currentBrand);
+    setCurrentMetrics(realTimeData.current);
+    setVelocityIndicators(realTimeData.velocity);
+    setTrendingTopics(realTimeData.topics);
+  }, [currentBrand]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (isLive && hasValidBrand) {
       intervalRef.current = setInterval(() => {
-        const newDataPoint = generateSyncRealTimeData();
-
+        // Use real base from currentBrand rather than pure noise
+        const realBrand = currentBrand;
+        if (!realBrand) return;
+        const newDataPoint = {
+          timestamp: new Date().toISOString(),
+          rageIndex: realBrand.rageIndex || 0,
+          mentions: realBrand.totalMentions || 0,
+          sentiment: (realBrand.positivePercentage || 65) / 100,
+          platforms: realBrand.platformStats || {}
+        };
         setLiveData(prevData => {
           const newData = [...prevData, newDataPoint];
-          // Keep only last 100 data points for performance
           return newData.slice(-100);
         });
-
         setCurrentMetrics(newDataPoint);
-        setVelocityIndicators(prev => getIndicatorsFromData(newDataPoint, prev?.[0] ? { mentions: prev[0].current, sentiment: prev[1].current / 100, rageIndex: prev[2].current } : null));
-      }, 2000); // Update every 2 seconds
+      }, 15000); // Refresh every 15s aligned with BrandContext polling
     } else {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
@@ -350,7 +364,7 @@ const RealTimeIntelligence = () => {
         clearInterval(intervalRef.current);
       }
     };
-  }, [isLive, hasValidBrand]);
+  }, [isLive, hasValidBrand, currentBrand]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const getVelocityColor = (trend, status) => {
     if (status === 'alert') return 'text-red-400 bg-red-500/20 border-red-500/30';
@@ -634,25 +648,54 @@ const RealTimeIntelligence = () => {
             </div>
 
             <div className="flex items-center space-x-8">
+              {/* Live Rage Index — compact ring */}
               <div className="text-center">
-                <div className="text-2xl font-bold text-green-400">
-                  {Math.round(currentMetrics.rageIndex || 0)}
-                </div>
-                <div className="text-xs text-slate-400 uppercase tracking-wider">Rage Index</div>
+                {(() => {
+                  const ri = Math.round(currentMetrics.rageIndex || 0);
+                  const r = 22;
+                  const circ = 2 * Math.PI * r;
+                  const dash = (ri / 100) * circ;
+                  const color = ri >= 80 ? '#991b1b' : ri >= 60 ? '#ef4444' : ri >= 40 ? '#f97316' : ri >= 20 ? '#eab308' : '#22c55e';
+                  return (
+                    <div className="relative w-14 h-14 mx-auto">
+                      <svg viewBox="0 0 56 56" className="w-14 h-14 -rotate-90">
+                        <circle cx="28" cy="28" r={r} fill="none" stroke="#334155" strokeWidth="5" />
+                        <circle cx="28" cy="28" r={r} fill="none" stroke={color} strokeWidth="5"
+                          strokeDasharray={`${dash} ${circ}`} strokeLinecap="round" />
+                      </svg>
+                      <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white">{ri}</span>
+                    </div>
+                  );
+                })()}
+                <div className="text-xs text-slate-400 uppercase tracking-wider mt-1">Rage Index</div>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-blue-400">
-                  {currentMetrics.mentions || 0}
+                  {(currentMetrics.mentions || 0).toLocaleString()}
                 </div>
-                <div className="text-xs text-slate-400 uppercase tracking-wider">Mentions/min</div>
+                <div className="text-xs text-slate-400 uppercase tracking-wider">Total Mentions</div>
               </div>
+              {/* Sentiment Pulse ring */}
               <div className="text-center">
-                <div className="text-2xl font-bold text-purple-400">
-                  {Math.round((currentMetrics.sentiment || 0) * 100)}%
+                <div className="relative w-16 h-16 mx-auto">
+                  <svg viewBox="0 0 36 36" className="w-16 h-16 -rotate-90">
+                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="#334155" strokeWidth="3" />
+                    <circle
+                      cx="18" cy="18" r="15.9" fill="none"
+                      stroke={Math.round((currentMetrics.sentiment || 0) * 100) >= 60 ? '#22c55e' : '#f97316'}
+                      strokeWidth="3"
+                      strokeDasharray={`${Math.round((currentMetrics.sentiment || 0) * 100)} 100`}
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white">
+                    {Math.round((currentMetrics.sentiment || 0) * 100)}%
+                  </span>
                 </div>
-                <div className="text-xs text-slate-400 uppercase tracking-wider">Sentiment</div>
+                <div className="text-xs text-slate-400 uppercase tracking-wider mt-1">Sentiment</div>
               </div>
             </div>
+
           </div>
         </div>
 

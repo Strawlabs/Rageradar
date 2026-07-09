@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from './AuthContext';
 import axios from 'axios';
 
@@ -19,7 +19,7 @@ export const BrandProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const lastFetchedUserId = useRef(null);
 
-  // Fetch analyzed brands when user changes
+  // Fetch analyzed brands when user changes + 30s auto-refresh polling
   useEffect(() => {
     if (currentUser) {
       // Only fetch if this is a different user or first time
@@ -28,12 +28,20 @@ export const BrandProvider = ({ children }) => {
         lastFetchedUserId.current = currentUser.uid;
         fetchAnalyzedBrands();
       }
+
+      // Auto-refresh every 30 seconds so dashboard updates after new ingestion
+      const pollInterval = setInterval(() => {
+        console.log('🔄 BrandContext: Auto-refresh poll');
+        fetchAnalyzedBrands();
+      }, 30000);
+
+      return () => clearInterval(pollInterval);
     } else {
       setAnalyzedBrands([]);
       setCurrentBrand(null);
       lastFetchedUserId.current = null;
     }
-  }, [currentUser]);
+  }, [currentUser]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sanitizeAndDeduplicateBrands = (brandsList) => {
     const seen = new Set();
