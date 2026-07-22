@@ -8,21 +8,28 @@ const UserManagement = () => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [showRoleModal, setShowRoleModal] = useState(false);
 
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterRole, setFilterRole] = useState('all');
+  const [filterPlan, setFilterPlan] = useState('all');
+
   // Check if user is admin (same logic as sidebar) - must be defined before useEffect
   const isUserAdmin = (
     userPlan?.role === 'admin' || 
+    userPlan?.role === 'super_admin' || 
     userPlan?.email === 'admin@rageradar.com' || 
     currentUser?.email === 'admin@rageradar.com' ||
     isAdmin(userPlan)
   );
 
   const roles = [
-    { value: 'admin', label: 'Super Admin', description: 'Full system access including user management' },
-    { value: 'user', label: 'User', description: 'Standard access to sentiment analysis features' }
+    { value: 'super_admin', label: 'Super Admin', description: 'Full system access, including user & role management' },
+    { value: 'admin', label: 'Admin', description: 'Can manage users, plans, and system content' },
+    { value: 'enterprise_user', label: 'Enterprise User', description: 'Advanced access with API & export capabilities' },
+    { value: 'user', label: 'Standard User', description: 'Standard access to sentiment analysis features' }
   ];
 
-  const plans = ['trial', 'starter', 'pro', 'enterprise'];
-  const statuses = ['active', 'inactive', 'suspended'];
+  const plans = ['trial', 'free', 'starter', 'pro', 'enterprise'];
+  const statuses = ['active', 'inactive', 'suspended', 'deactivated'];
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -46,7 +53,21 @@ const UserManagement = () => {
           
           if (response.ok) {
             const userData = await response.json();
-            setUsers(userData);
+            const formatted = userData.map(u => ({
+              id: u.id,
+              email: u.email || 'Unknown',
+              firstName: u.first_name || 'Unknown',
+              lastName: u.last_name || 'User',
+              role: u.role || 'user',
+              plan: u.plan || 'trial',
+              status: u.subscription_status || 'active',
+              createdAt: u.created_at ? new Date(u.created_at).toLocaleDateString() : 'Unknown',
+              lastLogin: u.last_login ? new Date(u.last_login).toLocaleDateString() : 'Never',
+              brandsUsed: u.brands_used || 0,
+              maxBrands: u.max_brands || 1,
+              companyName: u.company_name || 'N/A'
+            }));
+            setUsers(formatted);
             setLoading(false);
             return;
           }
@@ -64,16 +85,16 @@ const UserManagement = () => {
           return {
             id: userData.id,
             email: userData.email || 'Unknown',
-            firstName: userData.firstName || 'Unknown',
-            lastName: userData.lastName || 'User',
+            firstName: userData.first_name || userData.firstName || 'Unknown',
+            lastName: userData.last_name || userData.lastName || 'User',
             role: userData.role || 'user',
             plan: userData.plan || 'trial',
-            status: userData.status || 'active',
-            createdAt: userData.createdAt ? new Date(userData.createdAt).toLocaleDateString() : 'Unknown',
-            lastLogin: userData.lastLogin ? new Date(userData.lastLogin).toLocaleDateString() : 'Never',
-            brandsUsed: userData.brandsUsed || 0,
-            maxBrands: userData.maxBrands || 1,
-            companyName: userData.companyName || 'N/A'
+            status: userData.subscription_status || userData.status || 'active',
+            createdAt: userData.created_at || userData.createdAt ? new Date(userData.created_at || userData.createdAt).toLocaleDateString() : 'Unknown',
+            lastLogin: userData.last_login || userData.lastLogin ? new Date(userData.last_login || userData.lastLogin).toLocaleDateString() : 'Never',
+            brandsUsed: userData.brands_used || userData.brandsUsed || 0,
+            maxBrands: userData.max_brands || userData.maxBrands || 1,
+            companyName: userData.company_name || userData.companyName || 'N/A'
           };
         });
 
@@ -89,7 +110,7 @@ const UserManagement = () => {
             email: currentUser.email,
             firstName: 'Admin',
             lastName: 'User',
-            role: 'admin',
+            role: 'super_admin',
             plan: 'enterprise',
             status: 'active',
             createdAt: 'Unknown',
@@ -107,7 +128,26 @@ const UserManagement = () => {
     fetchUsers();
   }, [currentUser, isUserAdmin]);
 
-  const handleRoleChange = (userId, newRole) => {
+  const handleRoleChange = async (userId, newRole) => {
+    try {
+      if (currentUser?.getIdToken) {
+        const token = await currentUser.getIdToken();
+        await fetch(`/api/admin/users/${userId}/role`, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ role: newRole })
+        });
+      } else {
+        const { supabase } = await import('../supabase');
+        await supabase.from('users').update({ role: newRole }).eq('id', userId);
+      }
+    } catch (err) {
+      console.warn('Backend role update error:', err);
+    }
+
     setUsers(users.map(user => 
       user.id === userId ? { ...user, role: newRole } : user
     ));
@@ -115,7 +155,48 @@ const UserManagement = () => {
     setSelectedUser(null);
   };
 
-  const handleStatusChange = (userId, newStatus) => {
+  const handlePlanChange = async (userId, newPlan) => {
+    try {
+      if (currentUser?.getIdToken) {
+        const token = await currentUser.getIdToken();
+        await fetch(`/api/admin/users/${userId}/plan`, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ plan: newPlan })
+        });
+      } else {
+        const { supabase } = await import('../supabase');
+        await supabase.from('users').update({ plan: newPlan }).eq('id', userId);
+      }
+    } catch (err) {
+      console.warn('Backend plan update error:', err);
+    }
+
+    const planBrands = { trial: 1, free: 1, starter: 3, pro: 10, enterprise: 'unlimited' };
+    setUsers(users.map(user => 
+      user.id === userId ? { ...user, plan: newPlan, maxBrands: planBrands[newPlan] || 1 } : user
+    ));
+  };
+
+  const handleStatusChange = async (userId, newStatus) => {
+    try {
+      if (currentUser?.getIdToken && newStatus === 'deactivated') {
+        const token = await currentUser.getIdToken();
+        await fetch(`/api/admin/users/${userId}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+      } else {
+        const { supabase } = await import('../supabase');
+        await supabase.from('users').update({ subscription_status: newStatus }).eq('id', userId);
+      }
+    } catch (err) {
+      console.warn('Backend status update error:', err);
+    }
+
     setUsers(users.map(user => 
       user.id === userId ? { ...user, status: newStatus } : user
     ));
@@ -123,7 +204,9 @@ const UserManagement = () => {
 
   const getRoleBadgeColor = (role) => {
     switch (role) {
-      case 'admin': return 'bg-gradient-to-r from-red-500 via-orange-500 to-yellow-500 text-white';
+      case 'super_admin': return 'bg-gradient-to-r from-red-600 via-orange-600 to-yellow-600 text-white font-bold';
+      case 'admin': return 'bg-gradient-to-r from-red-500 to-orange-500 text-white';
+      case 'enterprise_user': return 'bg-purple-100 text-purple-800 border border-purple-200';
       case 'user': return 'bg-slate-100 text-slate-700';
       default: return 'bg-gray-100 text-gray-800';
     }
@@ -134,9 +217,19 @@ const UserManagement = () => {
       case 'active': return 'bg-green-100 text-green-800';
       case 'inactive': return 'bg-yellow-100 text-yellow-800';
       case 'suspended': return 'bg-red-100 text-red-800';
+      case 'deactivated': return 'bg-gray-200 text-gray-600 line-through';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
+
+  const filteredUsers = users.filter(user => {
+    const matchesSearch = (user.firstName + ' ' + user.lastName + ' ' + user.email + ' ' + user.companyName)
+      .toLowerCase()
+      .includes(searchTerm.toLowerCase());
+    const matchesRole = filterRole === 'all' || user.role === filterRole;
+    const matchesPlan = filterPlan === 'all' || user.plan === filterPlan;
+    return matchesSearch && matchesRole && matchesPlan;
+  });
 
   if (!isUserAdmin) {
     return (
@@ -169,11 +262,11 @@ const UserManagement = () => {
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-foreground mb-2">User Management</h1>
-            <p className="text-muted-foreground">Manage user accounts and permissions</p>
+            <p className="text-muted-foreground">Manage user accounts, roles, and subscriptions</p>
           </div>
           <button
             onClick={() => window.location.reload()}
-            className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
+            className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 shadow"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -184,7 +277,7 @@ const UserManagement = () => {
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-card p-4 rounded-lg border">
+          <div className="bg-card p-4 rounded-lg border shadow-sm">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Total Users</p>
@@ -198,7 +291,7 @@ const UserManagement = () => {
             </div>
           </div>
 
-          <div className="bg-card p-4 rounded-lg border">
+          <div className="bg-card p-4 rounded-lg border shadow-sm">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Active Users</p>
@@ -212,11 +305,11 @@ const UserManagement = () => {
             </div>
           </div>
 
-          <div className="bg-card p-4 rounded-lg border">
+          <div className="bg-card p-4 rounded-lg border shadow-sm">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Super Admins</p>
-                <p className="text-2xl font-bold text-foreground">{users.filter(u => u.role === 'admin').length}</p>
+                <p className="text-sm font-medium text-muted-foreground">Admins</p>
+                <p className="text-2xl font-bold text-foreground">{users.filter(u => u.role === 'admin' || u.role === 'super_admin').length}</p>
               </div>
               <div className="w-10 h-10 bg-gradient-to-r from-red-500 via-orange-500 to-yellow-500 rounded-lg flex items-center justify-center">
                 <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -226,25 +319,65 @@ const UserManagement = () => {
             </div>
           </div>
 
-          <div className="bg-card p-4 rounded-lg border">
+          <div className="bg-card p-4 rounded-lg border shadow-sm">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Regular Users</p>
-                <p className="text-2xl font-bold text-foreground">{users.filter(u => u.role === 'user').length}</p>
+                <p className="text-sm font-medium text-muted-foreground">Enterprise</p>
+                <p className="text-2xl font-bold text-foreground">{users.filter(u => u.plan === 'enterprise' || u.role === 'enterprise_user').length}</p>
               </div>
-              <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center">
-                <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
                 </svg>
               </div>
             </div>
           </div>
         </div>
 
+        {/* Search & Filters */}
+        <div className="bg-card p-4 rounded-lg border mb-6 flex flex-col md:flex-row gap-4 items-center justify-between shadow-sm">
+          <div className="relative w-full md:w-96">
+            <input
+              type="text"
+              placeholder="Search users by name, email, or company..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:outline-none text-sm"
+            />
+            <svg className="w-5 h-5 text-gray-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
+
+          <div className="flex gap-3 w-full md:w-auto">
+            <select
+              value={filterRole}
+              onChange={(e) => setFilterRole(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-orange-500 focus:outline-none"
+            >
+              <option value="all">All Roles</option>
+              {roles.map(r => (
+                <option key={r.value} value={r.value}>{r.label}</option>
+              ))}
+            </select>
+
+            <select
+              value={filterPlan}
+              onChange={(e) => setFilterPlan(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-orange-500 focus:outline-none capitalize"
+            >
+              <option value="all">All Plans</option>
+              {plans.map(p => (
+                <option key={p} value={p}>{p} Plan</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
         {/* Users Table */}
-        <div className="bg-card rounded-lg border overflow-hidden">
-          <div className="px-6 py-4 border-b border-border">
-            <h2 className="text-lg font-semibold text-foreground">All Users</h2>
+        <div className="bg-card rounded-lg border overflow-hidden shadow-sm">
+          <div className="px-6 py-4 border-b border-border flex justify-between items-center">
+            <h2 className="text-lg font-semibold text-foreground">Users ({filteredUsers.length})</h2>
           </div>
           
           <div className="overflow-x-auto">
@@ -261,30 +394,38 @@ const UserManagement = () => {
                 </tr>
               </thead>
               <tbody className="bg-card divide-y divide-border">
-                {users.map((user) => (
-                  <tr key={user.id} className="hover:bg-muted/50">
+                {filteredUsers.map((user) => (
+                  <tr key={user.id} className="hover:bg-muted/50 transition-colors">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         <div className="w-10 h-10 bg-gradient-to-r from-red-500 to-orange-500 rounded-full flex items-center justify-center">
                           <span className="text-white font-semibold text-sm">
-                            {user.firstName.charAt(0)}{user.lastName.charAt(0)}
+                            {(user.firstName || 'U').charAt(0)}{(user.lastName || 'U').charAt(0)}
                           </span>
                         </div>
                         <div className="ml-4">
                           <div className="text-sm font-medium text-foreground">
                             {user.firstName} {user.lastName}
                           </div>
-                          <div className="text-sm text-muted-foreground">{user.email}</div>
+                          <div className="text-xs text-muted-foreground">{user.email} • {user.companyName}</div>
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getRoleBadgeColor(user.role)}`}>
-                        {user.role}
+                      <span className={`inline-flex px-2.5 py-1 text-xs rounded-full ${getRoleBadgeColor(user.role)}`}>
+                        {roles.find(r => r.value === user.role)?.label || user.role}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-foreground capitalize">
-                      {user.plan}
+                      <select
+                        value={user.plan}
+                        onChange={(e) => handlePlanChange(user.id, e.target.value)}
+                        className="text-xs border border-gray-300 rounded px-2 py-1 bg-white font-medium focus:ring-1 focus:ring-orange-500 capitalize"
+                      >
+                        {plans.map(p => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusBadgeColor(user.status)}`}>
@@ -294,24 +435,24 @@ const UserManagement = () => {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-foreground">
                       {user.brandsUsed}/{user.maxBrands === 'unlimited' ? '∞' : user.maxBrands}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
+                    <td className="px-6 py-4 whitespace-nowrap text-xs text-muted-foreground">
                       {user.lastLogin}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex space-x-2">
+                      <div className="flex items-center space-x-3">
                         <button
                           onClick={() => {
                             setSelectedUser(user);
                             setShowRoleModal(true);
                           }}
-                          className="text-blue-600 hover:text-blue-900"
+                          className="text-blue-600 hover:text-blue-900 text-xs font-semibold underline"
                         >
-                          Edit Role
+                          Change Role
                         </button>
                         <select
                           value={user.status}
                           onChange={(e) => handleStatusChange(user.id, e.target.value)}
-                          className="text-sm border border-gray-300 rounded px-2 py-1"
+                          className="text-xs border border-gray-300 rounded px-2 py-1"
                         >
                           {statuses.map(status => (
                             <option key={status} value={status}>{status}</option>
@@ -321,6 +462,13 @@ const UserManagement = () => {
                     </td>
                   </tr>
                 ))}
+                {filteredUsers.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-8 text-center text-sm text-muted-foreground">
+                      No users found matching your search and filters.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -328,26 +476,26 @@ const UserManagement = () => {
 
         {/* Role Change Modal */}
         {showRoleModal && selectedUser && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-card rounded-xl p-6 max-w-md w-full mx-4 border">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-card rounded-xl p-6 max-w-md w-full border shadow-2xl">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">
                 Change Role for {selectedUser.firstName} {selectedUser.lastName}
               </h3>
               
               <div className="space-y-3 mb-6">
                 {roles.map((role) => (
-                  <label key={role.value} className="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
+                  <label key={role.value} className="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
                     <input
                       type="radio"
                       name="role"
                       value={role.value}
                       checked={selectedUser.role === role.value}
                       onChange={() => setSelectedUser({...selectedUser, role: role.value})}
-                      className="mr-3"
+                      className="mr-3 text-orange-600 focus:ring-orange-500"
                     />
                     <div>
                       <div className="font-medium text-gray-900">{role.label}</div>
-                      <div className="text-sm text-gray-500">{role.description}</div>
+                      <div className="text-xs text-gray-500">{role.description}</div>
                     </div>
                   </label>
                 ))}
@@ -359,13 +507,13 @@ const UserManagement = () => {
                     setShowRoleModal(false);
                     setSelectedUser(null);
                   }}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm font-medium transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={() => handleRoleChange(selectedUser.id, selectedUser.role)}
-                  className="px-4 py-2 bg-gradient-to-r from-red-500 via-orange-500 to-yellow-500 text-white rounded-lg hover:shadow-lg"
+                  className="px-4 py-2 bg-gradient-to-r from-red-500 via-orange-500 to-yellow-500 text-white rounded-lg hover:shadow-lg text-sm font-bold transition-all"
                 >
                   Update Role
                 </button>

@@ -5,21 +5,37 @@ const RBACSettings = () => {
   const { currentUser, userPlan, isAdmin } = useAuth();
   const [activeTab, setActiveTab] = useState('roles');
 
-  // Simplified permissions for RageRadar
+  // Simplified permissions for RageRadar across 4 roles
   const [permissions, setPermissions] = useState({
-    admin: {
-      dashboard: ['view', 'edit', 'delete'],
+    super_admin: {
+      dashboard: ['view', 'edit', 'delete', 'create'],
       users: ['view', 'edit', 'delete', 'create'],
       blog: ['view', 'edit', 'delete', 'create', 'publish'],
       reports: ['view', 'edit', 'delete', 'create', 'export'],
       settings: ['view', 'edit'],
       billing: ['view', 'edit']
     },
+    admin: {
+      dashboard: ['view', 'edit', 'delete', 'create'],
+      users: ['view', 'edit'],
+      blog: ['view', 'edit', 'delete', 'create', 'publish'],
+      reports: ['view', 'edit', 'create', 'export'],
+      settings: ['view', 'edit'],
+      billing: ['view']
+    },
+    enterprise_user: {
+      dashboard: ['view', 'create', 'export'],
+      users: [],
+      blog: ['view'],
+      reports: ['view', 'create', 'export'],
+      settings: ['view'],
+      billing: ['view']
+    },
     user: {
       dashboard: ['view'],
       users: [],
       blog: ['view'],
-      reports: ['view', 'export'],
+      reports: ['view'],
       settings: ['view'],
       billing: ['view']
     }
@@ -27,18 +43,32 @@ const RBACSettings = () => {
 
   const [roles, setRoles] = useState([
     {
-      id: 'admin',
+      id: 'super_admin',
       name: 'Super Admin',
-      description: 'Complete system control including user management, blog management, and all RageRadar features',
+      description: 'Complete system control including role changes, user deletion, and billing configuration',
       color: 'red',
       userCount: 1
     },
     {
+      id: 'admin',
+      name: 'Admin',
+      description: 'System management including content, blogs, user status, and plans',
+      color: 'orange',
+      userCount: 2
+    },
+    {
+      id: 'enterprise_user',
+      name: 'Enterprise User',
+      description: 'Advanced features including custom exports, API integrations, and unlimited brands',
+      color: 'purple',
+      userCount: 5
+    },
+    {
       id: 'user',
-      name: 'User',
+      name: 'Standard User',
       description: 'Access to sentiment analysis, reports, and standard RageRadar features',
       color: 'slate',
-      userCount: 0
+      userCount: 12
     }
   ]);
 
@@ -111,7 +141,9 @@ const RBACSettings = () => {
 
   const getRoleColor = (color) => {
     const colors = {
-      red: 'bg-gradient-to-r from-red-500 via-orange-500 to-yellow-500 text-white border-transparent',
+      red: 'bg-gradient-to-r from-red-600 via-orange-600 to-yellow-600 text-white border-transparent font-bold',
+      orange: 'bg-gradient-to-r from-red-500 to-orange-500 text-white border-transparent font-semibold',
+      purple: 'bg-purple-100 text-purple-800 border-purple-200 font-medium',
       slate: 'bg-slate-100 text-slate-700 border-slate-200'
     };
     return colors[color] || colors.slate;
@@ -120,6 +152,7 @@ const RBACSettings = () => {
   // Check if user is admin (same logic as sidebar)
   const isUserAdmin = (
     userPlan?.role === 'admin' || 
+    userPlan?.role === 'super_admin' || 
     userPlan?.email === 'admin@rageradar.com' || 
     currentUser?.email === 'admin@rageradar.com' ||
     isAdmin(userPlan)
