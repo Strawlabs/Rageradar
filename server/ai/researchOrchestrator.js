@@ -14,6 +14,7 @@ const ThemeExtractor = require('../utils/themeExtractor');
 const AIInsightsEngine = require('./insightsEngine/aiInsightsEngine');
 const SearchEngine = require('../searchEngine');
 const TrendlineAnalyzer = require('../trendlineAnalyzer');
+const NotificationManager = require('../services/notificationManager');
 const { supabase } = require('../supabase');
 const logger = require('../utils/logger');
 
@@ -36,6 +37,7 @@ class ResearchOrchestrator {
         this.insightsEngine = new AIInsightsEngine();
         this.searchEngine = new SearchEngine();
         this.trendlineAnalyzer = new TrendlineAnalyzer();
+        this.notificationManager = new NotificationManager();
 
         // Initialize platform integrations (Reddit, YouTube, ProductHunt, App Store)
         this.platformManager = null;
@@ -509,6 +511,12 @@ class ResearchOrchestrator {
             await supabase
                 .from('analyses')
                 .insert(analysisToSave);
+
+            try {
+                await this.notificationManager.checkAndTriggerScanAlerts(userId, brandId, analysis);
+            } catch (alertErr) {
+                logger.warn('ResearchOrchestrator: Alert trigger check failed non-critically', { error: alertErr.message });
+            }
 
         } catch (dbError) {
             logger.error('ResearchOrchestrator: Database save failed', { error: dbError.message });

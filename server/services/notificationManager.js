@@ -1,10 +1,12 @@
 const EmailService = require('./emailService');
 const { supabase } = require('../supabase');
+const axios = require('axios');
 
 class NotificationManager {
   constructor() {
     this.emailService = new EmailService();
     this.supabase = supabase;
+    this.recentAlertsCache = new Map();
   }
 
   /**
@@ -387,31 +389,37 @@ class NotificationManager {
    */
   async logNotification(userId, type, data) {
     try {
-      let title = 'Notification';
-      let message = '';
-      if (type === 'rage_spike') {
-        title = 'Rage Spike Alert';
-        message = `Rage spike detected for brand: ${data.brandName || ''}.`;
-      } else if (type === 'weekly_report') {
-        title = 'Weekly Report Ready';
-        message = `Weekly report for ${data.reportData?.weekRange || ''} is ready.`;
-      } else if (type === 'new_mention') {
-        title = 'New Negative Mention';
-        message = `New critical mention detected for brand: ${data.brandName || ''}.`;
-      } else if (type === 'welcome') {
-        title = 'Welcome to RageRadar';
-        message = 'Thank you for signing up for RageRadar!';
-      } else {
-        title = 'System Notification';
-        message = data.message || 'System alert';
+      let title = data?.title || 'Notification';
+      let message = data?.message || '';
+      if (!data?.title && !data?.message) {
+        if (type === 'rage_spike') {
+          title = 'Rage Spike Alert';
+          message = `Rage spike detected for brand: ${data.brandName || ''}.`;
+        } else if (type === 'weekly_report') {
+          title = 'Weekly Report Ready';
+          message = `Weekly report for ${data.reportData?.weekRange || ''} is ready.`;
+        } else if (type === 'new_mention') {
+          title = 'New Negative Mention';
+          message = `New critical mention detected for brand: ${data.brandName || ''}.`;
+        } else if (type === 'welcome') {
+          title = 'Welcome to RageRadar';
+          message = 'Thank you for signing up for RageRadar!';
+        } else {
+          title = 'System Notification';
+          message = 'System alert';
+        }
       }
+
+      const fullMessage = data.evidenceUrl && !message.includes(data.evidenceUrl)
+        ? `${message} Evidence: ${data.evidenceUrl}`
+        : message;
 
       await this.supabase
         .from('notifications')
         .insert({
           user_id: userId,
           title,
-          message,
+          message: fullMessage,
           type,
           read: false,
           created_at: new Date().toISOString()
@@ -419,6 +427,262 @@ class NotificationManager {
     } catch (error) {
       console.error('Error logging notification:', error);
     }
+  }
+
+  /**
+   * Check if alert is a duplicate within the cooldown window (default 60 mins)
+   */
+  async isDuplicateAlert(userId, brandId, alertType, cooldownMinutes = 60) {
+    const key = `${userId}_${brandId}_${alertType}`;
+    const now = Date.now();
+    const cooldownMs = cooldownMinutes * 60 * 1000;
+
+    if (this.recentAlertsCache.has(key)) {
+      const lastTriggered = this.recentAlertsCache.get(key);
+      if (now - lastTriggered < cooldownMs) {
+        console.log(`Suppressed duplicate alert ${alertType} for brand ${brandId} (in memory cooldown)`);
+        return true;
+      }
+    }
+
+    try {
+      const cutoffIso = new Date(now - cooldownMs).toISOString();
+      const { data, error } = await this.supabase
+        .from('notifications')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('type', alertType)
+        .ilike('message', `%${brandId}%`)
+        .gte('created_at', cutoffIso)
+        .limit(1);
+
+      if (!error && data && data.length > 0) {
+        this.recentAlertsCache.set(key, now);
+        console.log(`Suppressed duplicate database alert ${alertType} for brand ${brandId}`);
+        return true;
+      }
+    } catch (err) {
+      // If database check fails, rely on in-memory cache
+    }
+
+    this.recentAlertsCache.set(key, now);
+    return false;
+  }
+
+  /**
+   * Send Slack Notification formatted cleanly with Block Kit & evidence links
+   */
+  async sendSlackNotification(webhookUrl, brandData, alertPayload) {
+    if (!webhookUrl) return { success: false, error: 'No Slack webhook provided' };
+    try {
+      const blocks = [
+        {
+          type: 'header',
+          text: {
+            type: 'plain_text',
+            text: `🚨 ${alertPayload.title || 'RageRadar Alert'}`
+          }
+        },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `*Brand:* ${brandData.name || brandData.brandName}\n*Severity:* ${alertPayload.severity || 'high'}\n*Current Value:* ${alertPayload.currentValue || 'N/A'}\n*Description:* ${alertPayload.description || ''}`
+          }
+        }
+      ];
+
+      if (alertPayload.evidenceUrl) {
+        blocks.push({
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `<${alertPayload.evidenceUrl}|🔍 View Evidence Mentions & Analysis>`
+          }
+        });
+      }
+
+      await axios.post(webhookUrl, {
+        text: `🚨 ${alertPayload.title || 'RageRadar Alert'}: ${brandData.name}`,
+        blocks
+      }, { timeout: 8000 });
+
+      return { success: true };
+    } catch (error) {
+      console.error('Slack notification delivery failed:', error.message);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Send Generic Webhook Notification
+   */
+  async sendWebhookNotification(webhookUrl, brandData, alertPayload) {
+    if (!webhookUrl) return { success: false, error: 'No custom webhook provided' };
+    try {
+      await axios.post(webhookUrl, {
+        event: alertPayload.type || 'rage_alert',
+        brand: brandData.name || brandData.brandName,
+        brandId: brandData.id || brandData.brandId,
+        alert: alertPayload,
+        timestamp: new Date().toISOString()
+      }, { timeout: 8000 });
+
+      return { success: true };
+    } catch (error) {
+      console.error('Webhook notification delivery failed:', error.message);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Dispatch multi-channel alert with deduplication and evidence linking
+   */
+  async dispatchAlert(userId, brandData, alertPayload, channels = ['email', 'web_dashboard']) {
+    const brandId = brandData.id || brandData.brandId || brandData.name || 'unknown';
+    const alertType = alertPayload.type || 'alert';
+
+    if (await this.isDuplicateAlert(userId, brandId, alertType)) {
+      return { success: false, duplicate: true, message: 'Suppressed by deduplication engine' };
+    }
+
+    const results = {};
+    const evidenceUrl = alertPayload.evidenceUrl || `/dashboard/mentions?brand=${encodeURIComponent(brandData.name || brandData.brandName || '')}&severity=${alertPayload.severity || 'high'}`;
+    const enrichedPayload = {
+      ...alertPayload,
+      evidenceUrl,
+      timestamp: new Date().toISOString()
+    };
+
+    let userData = null;
+    try {
+      const { data } = await this.supabase.from('users').select('*').eq('id', userId).single();
+      userData = data;
+    } catch (err) {}
+
+    const userEmail = userData?.email;
+    const prefs = userData?.notifications || {};
+
+    // 1. Web Dashboard (In-app notification)
+    if (channels.includes('web_dashboard') || channels.includes('web') || !channels || channels.length === 0) {
+      try {
+        await this.logNotification(userId, alertType, {
+          title: alertPayload.title,
+          message: `${alertPayload.description || ''}`,
+          brandId,
+          brandName: brandData.name || brandData.brandName,
+          evidenceUrl,
+          currentValue: alertPayload.currentValue
+        });
+        results.web_dashboard = { success: true };
+      } catch (err) {
+        results.web_dashboard = { success: false, error: err.message };
+      }
+    }
+
+    // 2. Email
+    if (channels.includes('email') && userEmail) {
+      try {
+        if (alertType === 'rage_spike' || alertPayload.severity === 'critical') {
+          await this.emailService.sendRageSpikeAlert(
+            userEmail,
+            brandData.name || brandData.brandName,
+            alertPayload.currentSentiment || 0,
+            alertPayload.previousSentiment || 0,
+            alertPayload.topMentions || []
+          );
+        } else {
+          await this.emailService.sendSystemNotification(
+            userEmail,
+            alertType,
+            `${alertPayload.title}: ${alertPayload.description}`,
+            { actionUrl: evidenceUrl, actionText: 'View Evidence' }
+          );
+        }
+        results.email = { success: true };
+      } catch (err) {
+        results.email = { success: false, error: err.message };
+      }
+    }
+
+    // 3. Slack
+    if (channels.includes('slack')) {
+      const webhookUrl = alertPayload.slackWebhook || prefs.slackWebhook || userData?.slack_webhook || process.env.SLACK_WEBHOOK_URL;
+      if (webhookUrl) {
+        results.slack = await this.sendSlackNotification(webhookUrl, brandData, enrichedPayload);
+      } else {
+        results.slack = { success: false, error: 'No Slack webhook configured' };
+      }
+    }
+
+    // 4. Webhook
+    if (channels.includes('webhook')) {
+      const webhookUrl = alertPayload.customWebhook || prefs.customWebhook || userData?.webhook_url || process.env.CUSTOM_WEBHOOK_URL;
+      if (webhookUrl) {
+        results.webhook = await this.sendWebhookNotification(webhookUrl, brandData, enrichedPayload);
+      } else {
+        results.webhook = { success: false, error: 'No custom webhook configured' };
+      }
+    }
+
+    return { success: true, duplicate: false, results, evidenceUrl };
+  }
+
+  /**
+   * Check and trigger scan alerts after a research run completes
+   */
+  async checkAndTriggerScanAlerts(userId, brandId, analysis) {
+    if (!analysis || !userId) return null;
+
+    const brandData = {
+      id: brandId,
+      name: analysis.brandName || analysis.brand_name || 'Brand'
+    };
+
+    const rageIndex = analysis.rageIndex || analysis.rage_index || 0;
+    const totalMentions = analysis.totalMentions || analysis.total_mentions || 0;
+    const topMentions = (analysis.searchResults || analysis.search_results || [])
+      .filter(m => m.sentiment === 'negative' || m.rageIndex >= 60)
+      .slice(0, 5);
+
+    let userData = null;
+    try {
+      const { data } = await this.supabase.from('users').select('notifications, email, plan').eq('id', userId).single();
+      userData = data;
+    } catch (err) {}
+
+    const prefs = userData?.notifications || {};
+    const activeChannels = prefs.channels || ['email', 'web_dashboard', 'slack', 'webhook'];
+
+    let alertTriggered = null;
+
+    if (rageIndex >= 70 || analysis.rageAlert || analysis.rage_alert) {
+      const payload = {
+        type: 'rage_spike',
+        title: 'Critical Rage Index Alert',
+        description: `Rage Index for ${brandData.name} breached critical threshold (${Math.round(rageIndex)}%)`,
+        currentValue: `${Math.round(rageIndex)}%`,
+        severity: 'critical',
+        topMentions,
+        slackWebhook: prefs.slackWebhook,
+        customWebhook: prefs.customWebhook
+      };
+      alertTriggered = await this.dispatchAlert(userId, brandData, payload, activeChannels);
+    } else if (totalMentions >= 1000) {
+      const payload = {
+        type: 'volume_spike',
+        title: 'High Mention Volume Alert',
+        description: `${brandData.name} mention volume surged to ${totalMentions.toLocaleString()} mentions`,
+        currentValue: `${totalMentions.toLocaleString()}`,
+        severity: 'high',
+        topMentions,
+        slackWebhook: prefs.slackWebhook,
+        customWebhook: prefs.customWebhook
+      };
+      alertTriggered = await this.dispatchAlert(userId, brandData, payload, activeChannels);
+    }
+
+    return alertTriggered;
   }
 
   /**
@@ -437,7 +701,8 @@ class NotificationManager {
         rageAlerts: { enabled: true },
         weeklyReports: { enabled: true },
         mentionAlerts: { enabled: true },
-        systemAlerts: { enabled: true }
+        systemAlerts: { enabled: true },
+        channels: ['email', 'web_dashboard']
       };
     } catch (error) {
       console.error('Error getting user notification preferences:', error);
