@@ -711,12 +711,17 @@ app.post('/api/billing/cancel-subscription', authenticateUser, async (req, res) 
   }
 });
 
-// Mount Phase 3 Insights Routes
+// Mount API Routes
+app.use('/api/auth', require('./routes/auth'));
+app.use('/api/admin', require('./routes/admin'));
 app.use('/api/insights', require('./routes/insights'));
 app.use('/api/ai', require('./routes/aiIntelligence'));
-
-// Mount Platform Integrations Routes (Reddit, YouTube, ProductHunt, App Store)
 app.use('/api/integrations', require('./routes/platformIntegrations'));
+app.use('/api/billing', require('./routes/billing'));
+app.use('/api/analytics', require('./routes/analytics'));
+app.use('/api/events', require('./routes/events'));
+app.use('/api/notifications', require('./routes/notifications'));
+app.use('/api/privacy', require('./routes/privacy'));
 
 // Sentry error handler (must be before other error handlers)
 app.use(getSentryErrorHandler());

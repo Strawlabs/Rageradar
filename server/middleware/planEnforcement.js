@@ -8,6 +8,21 @@ const logger = require('../utils/logger');
 
 // Plan feature definitions
 const PLAN_FEATURES = {
+    trial: {
+        maxAnalyses: 1,
+        multiEmotion: false,
+        platforms: ['google'],
+        integrations: [],
+        eventTracking: false,
+        themeExtraction: false,
+        trendlineDays: 0,
+        insights: [],
+        dataRetentionDays: 3,
+        apiAccess: false,
+        exportFormats: [],
+        trialDurationDays: 3
+    },
+
     free: {
         maxAnalyses: 5,
         multiEmotion: false,
