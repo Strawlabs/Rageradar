@@ -23,31 +23,39 @@ const TrendlineChart = ({ trendline, height = 400 }) => {
         );
     }
 
-    const { timeline, movingAverage, spikes, trends } = trendline;
+    const { timeline, movingAverage, movingAverages, spikes, trends } = trendline;
 
     // Format data for chart
     const chartData = timeline.map((point, index) => ({
         ...point,
         date: new Date(point.timestamp).toLocaleDateString('en-US', {
             month: 'short',
-            day: 'numeric'
+            day: 'numeric',
+            ...(point.timestamp.includes('T') && !point.timestamp.endsWith('T00:00:00.000Z') ? { hour: '2-digit', minute: '2-digit' } : {})
         }),
-        movingAvg: movingAverage?.[index]?.value || null
+        movingAvg7d: movingAverages?.['7d']?.[index]?.value || movingAverage?.[index]?.value || null,
+        movingAvg30d: movingAverages?.['30d']?.[index]?.value || null
     }));
 
     // Custom tooltip
     const CustomTooltip = ({ active, payload }) => {
         if (active && payload && payload.length) {
             const data = payload[0].payload;
+            const spike = spikes?.find(s => s.timestamp === data.timestamp);
             return (
                 <div className="custom-tooltip">
                     <p className="tooltip-date">{data.date}</p>
                     <p className="tooltip-rage">
                         Rage Index: <strong>{data.rageIndex}</strong>
                     </p>
-                    {data.movingAvg && (
-                        <p className="tooltip-avg">
-                            7-Day Avg: <strong>{Math.round(data.movingAvg)}</strong>
+                    {data.movingAvg7d && (
+                        <p className="tooltip-avg" style={{ color: '#3B82F6' }}>
+                            7-Period Avg: <strong>{Math.round(data.movingAvg7d)}</strong>
+                        </p>
+                    )}
+                    {data.movingAvg30d && (
+                        <p className="tooltip-avg" style={{ color: '#8B5CF6' }}>
+                            30-Period Avg: <strong>{Math.round(data.movingAvg30d)}</strong>
                         </p>
                     )}
                     <p className="tooltip-mentions">
@@ -59,6 +67,16 @@ const TrendlineChart = ({ trendline, height = 400 }) => {
                                 {data.severity}
                             </span>
                         </p>
+                    )}
+                    {spike && (
+                        <div className="tooltip-spike-box" style={{ marginTop: '8px', padding: '6px', backgroundColor: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '4px' }}>
+                            <p style={{ color: '#DC2626', fontWeight: 'bold', fontSize: '12px', margin: 0 }}>
+                                🚨 Rage Spike Alert ({spike.severity.toUpperCase()})
+                            </p>
+                            <p style={{ color: '#991B1B', fontSize: '11px', margin: '4px 0 0 0' }}>
+                                +{spike.deviation} pts over mean ({spike.rollingMean || 'N/A'})
+                            </p>
+                        </div>
                     )}
                 </div>
             );
@@ -174,16 +192,29 @@ const TrendlineChart = ({ trendline, height = 400 }) => {
                         name="Rage Index"
                     />
 
-                    {/* Moving average line */}
-                    {movingAverage && movingAverage.length > 0 && (
+                    {/* 7-Period Moving Average line */}
+                    {(movingAverages?.['7d'] || movingAverage) && (
                         <Line
                             type="monotone"
-                            dataKey="movingAvg"
+                            dataKey="movingAvg7d"
                             stroke="#3B82F6"
                             strokeWidth={2}
                             strokeDasharray="5 5"
                             dot={false}
-                            name="7-Day Average"
+                            name="7-Period Average"
+                        />
+                    )}
+
+                    {/* 30-Period Moving Average line */}
+                    {movingAverages?.['30d'] && movingAverages['30d'].length > 0 && (
+                        <Line
+                            type="monotone"
+                            dataKey="movingAvg30d"
+                            stroke="#8B5CF6"
+                            strokeWidth={2}
+                            strokeDasharray="5 5"
+                            dot={false}
+                            name="30-Period Average"
                         />
                     )}
                 </ComposedChart>
@@ -216,16 +247,20 @@ const TrendlineChart = ({ trendline, height = 400 }) => {
             {/* Spikes List */}
             {spikes && spikes.length > 0 && (
                 <div className="spikes-list">
-                    <h4>Detected Spikes</h4>
-                    {spikes.slice(0, 3).map((spike, index) => (
+                    <h4>Detected Rage Spikes (Statistical Anomalies)</h4>
+                    {spikes.slice(0, 5).map((spike, index) => (
                         <div key={index} className="spike-item">
                             <span className="spike-icon">⚠️</span>
-                            <span className="spike-date">
-                                {new Date(spike.date).toLocaleDateString()}
-                            </span>
-                            <span className="spike-rage">Rage: {spike.rageIndex}</span>
+                            <div className="spike-info" style={{ flex: 1, marginLeft: '8px' }}>
+                                <span className="spike-date" style={{ fontWeight: '600' }}>
+                                    {new Date(spike.date).toLocaleDateString()} {spike.timestamp?.includes('T') && !spike.timestamp.endsWith('T00:00:00.000Z') ? new Date(spike.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                                </span>
+                                <span className="spike-rage" style={{ display: 'block', fontSize: '12px', color: '#6B7280' }}>
+                                    Score: {spike.rageIndex} (+{spike.deviation} pts vs rolling mean {spike.rollingMean || 'N/A'})
+                                </span>
+                            </div>
                             <span className={`spike-severity ${spike.severity}`}>
-                                {spike.severity}
+                                {spike.severity.toUpperCase()}
                             </span>
                         </div>
                     ))}

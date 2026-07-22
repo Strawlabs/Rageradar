@@ -80,10 +80,11 @@ class TrendlineAnalyzer {
             const trends = this.calculateTrends(timeline);
 
             // Detect spikes and anomalies
-            const spikes = this.detectSpikes(timeline);
+            const spikes = this.detectSpikes(timeline, options);
 
             // Calculate moving averages
-            const movingAverage = this.calculateMovingAverage(timeline, 7);
+            const movingAverage7d = this.calculateMovingAverage(timeline, 7);
+            const movingAverage30d = this.calculateMovingAverage(timeline, 30);
 
             logger.info('Trendline calculation complete', {
                 brandId,
@@ -95,7 +96,11 @@ class TrendlineAnalyzer {
                 timeline,
                 trends,
                 spikes,
-                movingAverage,
+                movingAverage: movingAverage7d,
+                movingAverages: {
+                    '7d': movingAverage7d,
+                    '30d': movingAverage30d
+                },
                 summary: {
                     totalMentions: mentions.length,
                     avgRageIndex: Math.round(timeline.reduce((sum, t) => sum + t.rageIndex, 0) / timeline.length),
@@ -186,17 +191,23 @@ class TrendlineAnalyzer {
 
         switch (granularity) {
             case 'hour':
-                return new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours()).toISOString();
+                d.setUTCMinutes(0, 0, 0);
+                return d.toISOString();
             case 'day':
-                return new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
+                d.setUTCHours(0, 0, 0, 0);
+                return d.toISOString();
             case 'week':
                 const weekStart = new Date(d);
-                weekStart.setDate(d.getDate() - d.getDay());
-                return new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate()).toISOString();
+                weekStart.setUTCDate(d.getUTCDate() - d.getUTCDay());
+                weekStart.setUTCHours(0, 0, 0, 0);
+                return weekStart.toISOString();
             case 'month':
-                return new Date(d.getFullYear(), d.getMonth(), 1).toISOString();
+                d.setUTCDate(1);
+                d.setUTCHours(0, 0, 0, 0);
+                return d.toISOString();
             default:
-                return new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
+                d.setUTCHours(0, 0, 0, 0);
+                return d.toISOString();
         }
     }
 
@@ -237,21 +248,56 @@ class TrendlineAnalyzer {
      * Detect spikes in timeline
      * @param {Array} timeline - Timeline data
      * @returns {Array} Detected spikes
+     * Detect spikes using statistical rolling threshold (rolling mean + 2*stdDev)
+     * and minimum sample volume checks to eliminate noisy false positives.
+     * @param {Array} timeline - Timeline data
+     * @param {object} options - Options
+     * @returns {Array} Detected spikes
      */
-    detectSpikes(timeline) {
-        if (timeline.length < 3) return [];
+    detectSpikes(timeline, options = {}) {
+        if (!timeline || timeline.length === 0) return [];
 
-        const avgRageIndex = timeline.reduce((sum, t) => sum + t.rageIndex, 0) / timeline.length;
-        const stdDev = this.calculateStdDev(timeline.map(t => t.rageIndex));
+        const windowSize = options.rollingWindow || 14;
+        const minSampleThreshold = options.minSampleThreshold || 5;
+        const minDeviationJump = options.minDeviationJump || 10;
 
-        // First, mark all candidate points that exceed the threshold and meet min volume
         const candidateSpikes = timeline.map((point, index) => {
-            const meetsThreshold = point.rageIndex > avgRageIndex + (2 * stdDev);
-            const meetsVolume = point.mentionCount > 10;
+            // For rolling baseline, take up to windowSize historical points prior to current point (or all points if early)
+            const historyStart = Math.max(0, index - windowSize);
+            const historicalPoints = index >= 2 
+                ? timeline.slice(historyStart, index)
+                : timeline.slice(0, Math.min(timeline.length, windowSize));
+
+            const rollingMean = historicalPoints.length > 0
+                ? historicalPoints.reduce((sum, p) => sum + p.rageIndex, 0) / historicalPoints.length
+                : point.rageIndex;
+
+            let rollingStdDev = this.calculateStdDev(historicalPoints.map(p => p.rageIndex));
+            // Floor stdDev to prevent ultra-stable baselines from flagging minor 2-point jumps
+            rollingStdDev = Math.max(rollingStdDev, 5);
+
+            const threshold = rollingMean + (2 * rollingStdDev);
+            const meetsThreshold = point.rageIndex > threshold;
+            const meetsVolume = point.mentionCount >= minSampleThreshold;
+            const meetsJump = (point.rageIndex - rollingMean) >= minDeviationJump;
+
+            const isCandidate = meetsThreshold && meetsVolume && meetsJump;
+
+            let severity = 'moderate';
+            if (point.rageIndex > rollingMean + (3 * rollingStdDev) || point.rageIndex >= 80) {
+                severity = 'critical';
+            } else if (point.rageIndex > rollingMean + (2.5 * rollingStdDev) || point.rageIndex >= 65) {
+                severity = 'high';
+            }
+
             return {
                 point,
                 index,
-                isCandidate: meetsThreshold && meetsVolume
+                isCandidate,
+                rollingMean: Math.round(rollingMean),
+                rollingStdDev: Math.round(rollingStdDev),
+                deviation: Math.round(point.rageIndex - rollingMean),
+                severity
             };
         });
 
@@ -269,21 +315,20 @@ class TrendlineAnalyzer {
                     runEnd++;
                 }
                 const runLength = runEnd - runStart + 1;
+                const point = c.point;
 
-                // Must persist for > 2 consecutive time buckets (run length of 3 or more)
-                if (runLength > 2) {
-                    const point = c.point;
-                    spikes.push({
-                        timestamp: point.timestamp,
-                        date: point.date,
-                        rageIndex: point.rageIndex,
-                        deviation: Math.round(point.rageIndex - avgRageIndex),
-                        severity: point.rageIndex > avgRageIndex + (3 * stdDev) ? 'critical' : 'high',
-                        mentionCount: point.mentionCount,
-                        isSustained: true,
-                        runLength
-                    });
-                }
+                spikes.push({
+                    timestamp: point.timestamp,
+                    date: point.date,
+                    rageIndex: point.rageIndex,
+                    rollingMean: c.rollingMean,
+                    rollingStdDev: c.rollingStdDev,
+                    deviation: c.deviation,
+                    severity: c.severity,
+                    mentionCount: point.mentionCount,
+                    isSustained: runLength >= 2,
+                    runLength
+                });
             }
         });
 
@@ -319,6 +364,7 @@ class TrendlineAnalyzer {
      * @returns {number} Standard deviation
      */
     calculateStdDev(values) {
+        if (!values || values.length === 0) return 0;
         const avg = values.reduce((sum, v) => sum + v, 0) / values.length;
         const squareDiffs = values.map(v => Math.pow(v - avg, 2));
         const avgSquareDiff = squareDiffs.reduce((sum, v) => sum + v, 0) / values.length;
@@ -356,6 +402,10 @@ class TrendlineAnalyzer {
             trends: { direction: 'stable', change: 0, percentChange: 0 },
             spikes: [],
             movingAverage: [],
+            movingAverages: {
+                '7d': [],
+                '30d': []
+            },
             summary: {
                 totalMentions: 0,
                 avgRageIndex: 0,

@@ -77,7 +77,7 @@ router.post('/generate', authenticateUser, async (req, res) => {
         if (includeTrendline) {
             data.trendline = await trendlineAnalyzer.calculateTrendline(brandId, {
                 period: trendlinePeriod,
-                granularity: 'day'
+                granularity: req.query.granularity || 'day'
             });
         }
 
@@ -123,11 +123,14 @@ router.post('/generate', authenticateUser, async (req, res) => {
 router.get('/trendline/:brandId', authenticateUser, async (req, res) => {
     try {
         const { brandId } = req.params;
-        const { period = 30, granularity = 'day' } = req.query;
+        const { period = 30, granularity = 'day', rollingWindow, minSampleThreshold, minDeviationJump } = req.query;
 
         const trendline = await trendlineAnalyzer.calculateTrendline(brandId, {
-            period: parseInt(period),
-            granularity
+            period: parseInt(period) || 30,
+            granularity,
+            rollingWindow: rollingWindow ? parseInt(rollingWindow) : undefined,
+            minSampleThreshold: minSampleThreshold ? parseInt(minSampleThreshold) : undefined,
+            minDeviationJump: minDeviationJump ? parseInt(minDeviationJump) : undefined
         });
 
         res.json({
