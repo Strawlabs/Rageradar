@@ -52,82 +52,6 @@ const RealTimeIntelligence = () => {
   const [hasValidBrand, setHasValidBrand] = useState(false);
   const intervalRef = useRef(null);
 
-  // Fetch real brand data
-  const fetchRealBrandData = async () => {
-    if (!brandName) return null;
-
-    // Use brands from context instead of making API call
-    const brandData = analyzedBrands.find(b => b.brandName === brandName);
-    return brandData || null;
-  };
-
-  // Store base data for consistent generation
-  const [baseData, setBaseData] = useState(null);
-
-  // Real-time data simulation with real base data
-  const generateRealTimeData = async () => {
-    let realData = baseData;
-    if (!realData) {
-      realData = await fetchRealBrandData();
-      setBaseData(realData);
-    }
-
-    const now = new Date();
-
-    // Use real data as base if available
-    const baseRageIndex = realData ? (realData.rageIndex || 35) : 35;
-    const baseMentions = realData ? (realData.totalMentions || 150) : 150;
-    const baseSentiment = realData ? ((realData.positivePercentage || 65) / 100) : 0.65;
-
-    // Add some realistic variation
-    const rageVariation = (Math.random() - 0.5) * 10;
-    const mentionVariation = Math.floor((Math.random() - 0.5) * 50);
-    const sentimentVariation = (Math.random() - 0.5) * 0.2;
-
-    return {
-      timestamp: now.toISOString(),
-      rageIndex: Math.max(0, Math.min(100, baseRageIndex + rageVariation)),
-      mentions: Math.max(0, baseMentions + mentionVariation),
-      sentiment: Math.max(0, Math.min(1, baseSentiment + sentimentVariation)),
-      platforms: {
-        twitter: Math.floor(Math.random() * 50) + 20,
-        reddit: Math.floor(Math.random() * 30) + 10,
-        youtube: Math.floor(Math.random() * 25) + 15,
-        news: Math.floor(Math.random() * 20) + 5,
-        instagram: Math.floor(Math.random() * 35) + 10
-      }
-    };
-  };
-
-  // Synchronous data generation for intervals
-  const generateSyncRealTimeData = () => {
-    const now = new Date();
-
-    // Use stored base data or defaults
-    const baseRageIndex = baseData ? (baseData.rageIndex || 35) : 35;
-    const baseMentions = baseData ? (baseData.totalMentions || 150) : 150;
-    const baseSentiment = baseData ? ((baseData.positivePercentage || 65) / 100) : 0.65;
-
-    // Add some realistic variation
-    const rageVariation = (Math.random() - 0.5) * 10;
-    const mentionVariation = Math.floor((Math.random() - 0.5) * 50);
-    const sentimentVariation = (Math.random() - 0.5) * 0.2;
-
-    return {
-      timestamp: now.toISOString(),
-      rageIndex: Math.max(0, Math.min(100, baseRageIndex + rageVariation)),
-      mentions: Math.max(0, baseMentions + mentionVariation),
-      sentiment: Math.max(0, Math.min(1, baseSentiment + sentimentVariation)),
-      platforms: {
-        twitter: Math.floor(Math.random() * 50) + 20,
-        reddit: Math.floor(Math.random() * 30) + 10,
-        youtube: Math.floor(Math.random() * 25) + 15,
-        news: Math.floor(Math.random() * 20) + 5,
-        instagram: Math.floor(Math.random() * 35) + 10
-      }
-    };
-  };
-
   // Velocity calculation helper
   const calculateVelocity = (current, previous, timeInMinutes = 1) => {
     if (!previous) return 0;
@@ -248,11 +172,11 @@ const RealTimeIntelligence = () => {
       current,
       topics: (brandData.themes || []).map((theme, idx) => ({
         id: idx,
-        topic: theme.theme || theme.name || theme.label || theme,
-        mentions: theme.count || Math.floor(baseMentions * 0.1),
+        topic: typeof theme === 'string' ? theme : (theme.theme || theme.name || theme.label || 'Theme'),
+        mentions: typeof theme === 'object' && theme.count ? theme.count : Math.floor(baseMentions * 0.1),
         change: '+ ' + (Math.floor(Math.random() * 20) + 5) + '%',
-        sentiment: theme.sentiment !== undefined ? theme.sentiment : baseSentiment,
-        velocity: theme.rageIndex > 60 ? 'surging' : 'rising',
+        sentiment: typeof theme === 'object' && theme.sentiment !== undefined ? theme.sentiment : baseSentiment,
+        velocity: (typeof theme === 'object' && theme.rageIndex > 60) ? 'surging' : 'rising',
         lastUpdate: new Date().toISOString()
       })),
       geographic: brandData.geographicBreakdown || [
@@ -276,17 +200,13 @@ const RealTimeIntelligence = () => {
 
       setLoading(true);
       try {
-        // Use brands from context instead of making API call
-        let selectedBrandData = analyzedBrands.find(b => b.brandName === brandName);
-
-        // If no brand found in context but we have current brand, use that
-        if (!selectedBrandData && currentBrand && currentBrand.brandName === brandName) {
-          selectedBrandData = currentBrand;
-        }
+        // Prioritize currentBrand when it matches brandName, otherwise check context
+        let selectedBrandData = (currentBrand && currentBrand.brandName === brandName)
+          ? currentBrand
+          : analyzedBrands.find(b => b.brandName === brandName);
 
         if (selectedBrandData && selectedBrandData.totalMentions > 0) {
           console.log('🔄 RealTime: Using real brand data for', selectedBrandData.brandName);
-          // Generate real-time data from actual brand data
           const realTimeData = generateRealTimeDataFromBrand(selectedBrandData);
 
           setLiveData(realTimeData.historical);
@@ -296,9 +216,8 @@ const RealTimeIntelligence = () => {
           setVelocityIndicators(realTimeData.velocity);
           setActiveStreams(Object.keys(selectedBrandData.platformStats || {}).length);
           setHasValidBrand(true);
-          setIsLive(true); // Only start live updates when we have valid brand data
+          setIsLive(true);
         } else {
-          // No valid brand data found
           console.log('🔄 RealTime: No valid brand data found for', brandName);
           setLiveData([]);
           setCurrentMetrics({});
@@ -323,22 +242,25 @@ const RealTimeIntelligence = () => {
     };
 
     initializeData();
-  }, [brandName, currentUser, currentBrand]);
+  }, [brandName, currentUser, currentBrand, analyzedBrands]);
 
-  // Real data polling: re-sync chart whenever currentBrand updates from BrandContext polling
+  // Real data polling: re-sync metrics whenever currentBrand updates from BrandContext polling
   useEffect(() => {
     if (!hasValidBrand || !currentBrand) return;
+    if (currentBrand.brandName !== brandName) return;
     const realTimeData = generateRealTimeDataFromBrand(currentBrand);
     setCurrentMetrics(realTimeData.current);
     setVelocityIndicators(realTimeData.velocity);
     setTrendingTopics(realTimeData.topics);
-  }, [currentBrand]); // eslint-disable-line react-hooks/exhaustive-deps
+    setGeographicData(realTimeData.geographic);
+  }, [currentBrand, hasValidBrand, brandName]);
 
   useEffect(() => {
     if (isLive && hasValidBrand) {
       intervalRef.current = setInterval(() => {
-        // Use real base from currentBrand rather than pure noise
-        const realBrand = currentBrand;
+        const realBrand = (currentBrand && currentBrand.brandName === brandName)
+          ? currentBrand
+          : analyzedBrands.find(b => b.brandName === brandName);
         if (!realBrand) return;
         const newDataPoint = {
           timestamp: new Date().toISOString(),
@@ -352,7 +274,7 @@ const RealTimeIntelligence = () => {
           return newData.slice(-100);
         });
         setCurrentMetrics(newDataPoint);
-      }, 15000); // Refresh every 15s aligned with BrandContext polling
+      }, 15000);
     } else {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
@@ -364,7 +286,7 @@ const RealTimeIntelligence = () => {
         clearInterval(intervalRef.current);
       }
     };
-  }, [isLive, hasValidBrand, currentBrand]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isLive, hasValidBrand, currentBrand, brandName, analyzedBrands]);
 
   const getVelocityColor = (trend, status) => {
     if (status === 'alert') return 'text-red-400 bg-red-500/20 border-red-500/30';

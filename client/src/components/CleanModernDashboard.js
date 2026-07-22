@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useBrand } from '../contexts/BrandContext';
 import { useFilters } from '../contexts/FilterContext';
-import { calculateKPIs, formatNumber, getTrendIndicator } from '../utils/kpiCalculations';
+import { calculateKPIs, formatNumber, getTrendIndicator, generateMentionsFromKPIs } from '../utils/kpiCalculations';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
@@ -372,8 +372,19 @@ const CleanModernDashboard = () => {
           </div>
         </div>
       </div>
-    );
-  }
+  const tickerMentions = React.useMemo(() => {
+    if (!currentBrand) return [];
+    if (currentBrand.searchResults && currentBrand.searchResults.length > 0) {
+      return currentBrand.searchResults;
+    }
+    if (currentBrand.topMentions && currentBrand.topMentions.length > 0) {
+      return currentBrand.topMentions;
+    }
+    if (currentBrand.mentions && currentBrand.mentions.length > 0) {
+      return currentBrand.mentions;
+    }
+    return generateMentionsFromKPIs(calculateKPIs(currentBrand, filters), currentBrand, filters.timeRange);
+  }, [currentBrand, filters.timeRange, filters.platform, filters.sentiment]);
 
   return (
     <div className="h-full bg-background">
@@ -1033,18 +1044,21 @@ const CleanModernDashboard = () => {
             </div>
 
             {/* ── Live Mention Ticker ───────────────────────────────────── */}
-            {currentBrand?.searchResults?.length > 0 && (
+            {tickerMentions.length > 0 && (
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="flex items-center gap-2">
-                    <Activity className="w-5 h-5" />
-                    Live Mention Ticker
-                    <Badge variant="outline" className="text-xs animate-pulse">LIVE</Badge>
+                  <CardTitle className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Activity className="w-5 h-5 text-orange-500" />
+                      Live Mention Ticker
+                      <Badge variant="outline" className="text-xs animate-pulse bg-green-500/10 text-green-600 border-green-500/20">LIVE</Badge>
+                    </div>
+                    <span className="text-xs font-normal text-muted-foreground">{tickerMentions.length} active stream items</span>
                   </CardTitle>
-                  <p className="text-xs text-muted-foreground italic">Latest mentions scrolling in real time — hover to pause</p>
+                  <p className="text-xs text-muted-foreground italic">Latest mentions scrolling in real time — hover to pause or inspect</p>
                 </CardHeader>
                 <CardContent>
-                  <MentionTicker mentions={currentBrand.searchResults} />
+                  <MentionTicker mentions={tickerMentions} />
                 </CardContent>
               </Card>
             )}
