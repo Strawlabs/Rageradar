@@ -3,174 +3,12 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useBrand } from '../contexts/BrandContext';
 import { useFilters } from '../contexts/FilterContext';
-import { calculateKPIs, formatNumber, getTrendIndicator } from '../utils/kpiCalculations';
+import { calculateKPIs, formatNumber, getTrendIndicator, generateMentionsFromKPIs } from '../utils/kpiCalculations';
 
 import FilterBar from './shared/FilterBar';
 import PageHeader from './shared/PageHeader';
 import axios from 'axios';
 import EmptyState from './shared/EmptyState';
-
-const generateMentionsFromKPIs = (kpis, brandData, timeRange = '7d') => {
-  // 1. If we have real mentions from the brand analysis, use those first!
-  const realMentions = brandData?.searchResults || brandData?.topMentions;
-  if (realMentions && Array.isArray(realMentions) && realMentions.length > 0) {
-    console.log('✅ Found real brand mentions, using them in explorer', realMentions.length);
-
-    // Deduplicate by URL before processing
-    const seenUrls = new Set();
-    const deduplicated = realMentions.filter(m => {
-      const url = m.url || m.link || m.sourceUrl || '';
-      if (!url) return true; // keep if no URL
-      if (seenUrls.has(url)) return false;
-      seenUrls.add(url);
-      return true;
-    });
-
-    return deduplicated.map((mention, idx) => {
-      const emotion = mention.emotion || (mention.rageScore > 60 ? 'anger' : 'joy');
-      
-      const likes = mention.engagement?.likes || mention.platformMeta?.likes || 0;
-      const comments = mention.engagement?.comments || mention.engagement?.commentCount || mention.platformMeta?.commentCount || 0;
-      const upvotes = mention.engagement?.upvotes || mention.platformMeta?.upvotes || 0;
-      const replies = mention.engagement?.replies || mention.platformMeta?.replies || 0;
-      const totalEngagement = likes + comments + upvotes + replies || mention.engagement?.total || Math.floor(Math.random() * 10);
-
-      const influence = totalEngagement > 80 ? 'high' : totalEngagement > 40 ? 'medium' : 'low';
-
-      return {
-        ...mention,
-        id: mention.id || `real-${idx}`,
-        text: mention.text || mention.content || '',
-        platform: mention.platform || 'web',
-        timestamp: mention.timestamp || mention.publishedAt || new Date().toISOString(),
-        sentiment: mention.sentiment || (mention.rageIndex > 60 ? 'negative' : 'positive'),
-        emotion: emotion,
-        confidence: mention.confidence !== undefined ? mention.confidence : 'medium',
-        emotions: mention.emotions || [{ label: emotion, score: 0.8, confidence: 'medium' }],
-        keywords: mention.keywords || [],
-        themes: mention.themes || mention.themeTags || [],
-        rageIndex: mention.rageIndex || mention.rageScore || 0,
-        verified: mention.verified || false,
-        influence: mention.influence || influence,
-        engagement: {
-          likes,
-          comments,
-          shares: mention.engagement?.shares || upvotes,
-          total: totalEngagement
-        }
-      };
-    });
-  }
-
-  const platforms = ['twitter', 'reddit', 'facebook', 'instagram', 'youtube', 'tiktok', 'news', 'forums'];
-  const emotions = ['joy', 'anger', 'sadness', 'fear', 'surprise', 'neutral'];
-  const authors = ['User123', 'BrandFan', 'CriticalUser', 'HappyCustomer', 'Reviewer', 'SocialUser'];
-
-  // Time range in milliseconds
-  const timeRanges = {
-    '24h': 24 * 60 * 60 * 1000,
-    '7d': 7 * 24 * 60 * 60 * 1000,
-    '30d': 30 * 24 * 60 * 60 * 1000,
-    '90d': 90 * 24 * 60 * 60 * 1000
-  };
-
-  const timeRangeMs = timeRanges[timeRange] || timeRanges['7d'];
-
-  const mentions = [];
-  const kpiMentions = kpis.totalMentions || 50;
-  let totalMentions = Math.min(100, kpiMentions);
-
-  // Use real themes for keywords if available
-  const realThemes = (brandData?.themes || []).map(t => typeof t === 'string' ? t : (t.theme || t.name || t.label || ''));
-
-  for (let i = 0; i < totalMentions; i++) {
-    const isPositive = Math.random() * 100 < kpis.averageSentiment;
-    const sentiment = isPositive ? 'positive' : (Math.random() > 0.5 ? 'negative' : 'neutral');
-    const platform = platforms[Math.floor(Math.random() * platforms.length)];
-    const likes = Math.floor(Math.random() * 100);
-    const shares = Math.floor(Math.random() * 20);
-    const comments = Math.floor(Math.random() * 30);
-    const totalEngagement = likes + shares + comments;
-
-    mentions.push({
-      id: i + 1,
-      text: generateMentionText(brandData?.brandName || 'Brand', sentiment),
-      author: authors[Math.floor(Math.random() * authors.length)],
-      platform: platform,
-      timestamp: new Date(Date.now() - Math.random() * timeRangeMs).toISOString(),
-      sentiment: sentiment,
-      emotion: emotions[Math.floor(Math.random() * emotions.length)],
-      engagement: {
-        likes,
-        shares,
-        comments,
-        total: totalEngagement
-      },
-      keywords: realThemes.length > 0
-        ? [brandData?.brandName, ...realThemes.slice(0, 2)]
-        : [brandData?.brandName || 'brand', sentiment === 'positive' ? 'great' : 'issue'],
-      url: generatePlatformUrl(platform, brandData?.brandName || 'Brand'),
-      link: generatePlatformUrl(platform, brandData?.brandName || 'Brand'),
-      verified: Math.random() > 0.8,
-      influence: totalEngagement > 80 ? 'high' : totalEngagement > 40 ? 'medium' : 'low',
-      confidence: 0.85 + Math.random() * 0.1 // Higher confidence for real-rooted data
-    });
-  }
-
-  return mentions;
-};
-
-const generateMentionText = (brandName, sentiment) => {
-  const positiveTexts = [
-    `Just got my new ${brandName} product and I'm absolutely loving it! The quality is outstanding.`,
-    `${brandName} has completely changed my daily routine for the better. Highly recommend!`,
-    `Incredible customer service from ${brandName}. They went above and beyond to help me.`,
-    `Been using ${brandName} for months now and it keeps getting better. Amazing updates!`,
-    `${brandName} is hands down the best in the market. Worth every penny!`,
-    `Switched to ${brandName} last year and never looked back. Fantastic experience overall.`,
-    `The new features from ${brandName} are game-changing. Love the innovation!`,
-    `${brandName} support team resolved my issue in minutes. Impressive service!`
-  ];
-
-  const negativeTexts = [
-    `Really disappointed with ${brandName} lately. The quality has gone downhill.`,
-    `${brandName} customer support is terrible. Been waiting for days for a response.`,
-    `Had multiple issues with ${brandName} and they don't seem to care about fixing them.`,
-    `${brandName} used to be great but recent updates have made it worse. Very frustrating.`,
-    `Overpriced and underdelivered. ${brandName} is not what it used to be.`,
-    `${brandName} has too many bugs and glitches. Needs serious improvement.`,
-    `Tried contacting ${brandName} support multiple times with no luck. Poor service.`,
-    `${brandName} promised features that still don't work properly. Very disappointing.`
-  ];
-
-  const neutralTexts = [
-    `Using ${brandName} for work. It does the job but nothing extraordinary.`,
-    `${brandName} is decent. Has some good features and some areas for improvement.`,
-    `Been testing ${brandName} for a few weeks. Mixed feelings about it so far.`,
-    `${brandName} works fine for basic needs. Not sure if it's worth the premium price.`,
-    `Comparing ${brandName} with other options. Each has its pros and cons.`,
-    `${brandName} has potential but needs more polish. Will keep monitoring updates.`,
-    `Okay experience with ${brandName}. Nothing to complain about, nothing to rave about.`,
-    `${brandName} is functional but could use better user experience design.`
-  ];
-
-  if (sentiment === 'positive') return positiveTexts[Math.floor(Math.random() * positiveTexts.length)];
-  if (sentiment === 'negative') return negativeTexts[Math.floor(Math.random() * negativeTexts.length)];
-  return neutralTexts[Math.floor(Math.random() * neutralTexts.length)];
-};
-
-const generatePlatformUrl = (platform, brandName) => {
-  const urls = {
-    twitter: `https://twitter.com/search?q=${encodeURIComponent(brandName)}`,
-    reddit: `https://www.reddit.com/search/?q=${encodeURIComponent(brandName)}`,
-    facebook: `https://www.facebook.com/search/top?q=${encodeURIComponent(brandName)}`,
-    instagram: `https://www.instagram.com/explore/tags/${encodeURIComponent(brandName.toLowerCase().replace(/\s+/g, ''))}`,
-    youtube: `https://www.youtube.com/results?search_query=${encodeURIComponent(brandName)}`,
-    tiktok: `https://www.tiktok.com/search?q=${encodeURIComponent(brandName)}`
-  };
-
-  return urls[platform] || `https://www.google.com/search?q=${encodeURIComponent(brandName)}`;
-};
 
 const MentionsExplorer = () => {
   const [searchParams] = useSearchParams();
@@ -187,6 +25,8 @@ const MentionsExplorer = () => {
   const [filteredMentions, setFilteredMentions] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(25); // Show more mentions per page
+  const [selectedMention, setSelectedMention] = useState(null);
+  const [clusterSimilar, setClusterSimilar] = useState(true);
 
 
 
@@ -225,28 +65,71 @@ const MentionsExplorer = () => {
     fetchData();
   }, [currentBrand, filters.timeRange, filters.platform, filters.sentiment, filters.emotion]);
 
-  // Apply filters
+  // Apply filters & clustering
   useEffect(() => {
     let filtered = [...mentions];
 
-    // Time range filtering is handled by KPIs, no additional filtering needed here
+    // Time range filter
+    if (filters.timeRange && filters.timeRange !== 'all') {
+      const timeRanges = {
+        '24h': 24 * 60 * 60 * 1000,
+        '7d': 7 * 24 * 60 * 60 * 1000,
+        '30d': 30 * 24 * 60 * 60 * 1000,
+        '90d': 90 * 24 * 60 * 60 * 1000
+      };
+      const cutoff = Date.now() - (timeRanges[filters.timeRange] || timeRanges['7d']);
+      filtered = filtered.filter(m => new Date(m.timestamp).getTime() >= cutoff);
+    }
 
-    if (filters.platform !== 'all') {
+    if (filters.platform && filters.platform !== 'all') {
       filtered = filtered.filter(m => m.platform === filters.platform);
     }
 
-    if (filters.sentiment !== 'all') {
+    if (filters.sentiment && filters.sentiment !== 'all') {
       filtered = filtered.filter(m => m.sentiment === filters.sentiment);
     }
 
-    if (filters.emotion !== 'all') {
+    if (filters.emotion && filters.emotion !== 'all') {
       filtered = filtered.filter(m => m.emotion === filters.emotion);
     }
 
-    if (filters.keyword) {
+    if (filters.severity && filters.severity !== 'all') {
+      filtered = filtered.filter(m => {
+        const ri = m.rageIndex !== undefined ? m.rageIndex : (m.rageScore !== undefined ? m.rageScore : 0);
+        if (filters.severity === 'critical') return ri >= 80;
+        if (filters.severity === 'high') return ri >= 60 && ri < 80;
+        if (filters.severity === 'moderate') return ri >= 40 && ri < 60;
+        if (filters.severity === 'low') return ri < 40;
+        return true;
+      });
+    }
+
+    if (filters.theme && filters.theme !== 'all') {
+      const q = filters.theme.toLowerCase().replace(/^#/, '');
+      filtered = filtered.filter(m => {
+        const themesMatch = (m.themes || []).some(t => {
+          const tVal = typeof t === 'string' ? t : (t.theme || t.name || t.label || '');
+          return tVal.toLowerCase().includes(q);
+        });
+        const kwMatch = (m.keywords || []).some(k => k.toLowerCase().includes(q));
+        return themesMatch || kwMatch;
+      });
+    }
+
+    if (filters.brand && filters.brand !== 'all') {
+      const b = filters.brand.toLowerCase();
+      filtered = filtered.filter(m => 
+        (m.text && m.text.toLowerCase().includes(b)) ||
+        (m.keywords && m.keywords.some(k => k.toLowerCase() === b)) ||
+        (currentBrand && currentBrand.brandName && currentBrand.brandName.toLowerCase() === b)
+      );
+    }
+
+    if (filters.keyword && filters.keyword.trim() !== '') {
+      const kw = filters.keyword.toLowerCase();
       filtered = filtered.filter(m =>
-        m.text.toLowerCase().includes(filters.keyword.toLowerCase()) ||
-        m.keywords.some(k => k.toLowerCase().includes(filters.keyword.toLowerCase()))
+        m.text.toLowerCase().includes(kw) ||
+        (m.keywords && m.keywords.some(k => k.toLowerCase().includes(kw)))
       );
     }
 
@@ -261,15 +144,47 @@ const MentionsExplorer = () => {
       }
 
       if (filters.sortOrder === 'asc') {
-        return aVal > bVal ? 1 : -1;
+        return aVal > bVal ? 1 : (aVal < bVal ? -1 : 0);
       } else {
-        return aVal < bVal ? 1 : -1;
+        return aVal < bVal ? 1 : (aVal > bVal ? -1 : 0);
       }
     });
 
+    // Deduplication & Clustering
+    if (clusterSimilar) {
+      const clusters = [];
+      const used = new Set();
+      for (let i = 0; i < filtered.length; i++) {
+        if (used.has(i)) continue;
+        const main = filtered[i];
+        const dupes = [];
+        used.add(i);
+        const mainTextClean = main.text.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 45);
+        for (let j = i + 1; j < filtered.length; j++) {
+          if (used.has(j)) continue;
+          const other = filtered[j];
+          const otherTextClean = other.text.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 45);
+          const sameUrl = (main.url && other.url && main.url === other.url) || (main.link && other.link && main.link === other.link);
+          const similarText = (mainTextClean.length > 15 && mainTextClean === otherTextClean);
+          if (sameUrl || similarText) {
+            dupes.push(other);
+            used.add(j);
+          }
+        }
+        clusters.push({
+          ...main,
+          duplicateMentions: dupes,
+          duplicateCount: dupes.length
+        });
+      }
+      filtered = clusters;
+    } else {
+      filtered = filtered.map(m => ({ ...m, duplicateMentions: [], duplicateCount: 0 }));
+    }
+
     setFilteredMentions(filtered);
     setCurrentPage(1);
-  }, [mentions, filters]);
+  }, [mentions, filters, clusterSimilar, currentBrand]);
 
   const getEmotionIcon = (emotion) => {
     const icons = {
@@ -609,30 +524,50 @@ const MentionsExplorer = () => {
         </div>
 
         {/* Filter Bar */}
-        <FilterBar className="mb-4" />
+        <FilterBar 
+          className="mb-4" 
+          availableThemes={(currentBrand?.themes || [])}
+          availableBrands={currentBrand ? [currentBrand.brandName] : null}
+        />
 
-        {/* Filter Summary */}
+        {/* Filter Summary & Clustering Toggle */}
         <div className="bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-700 mb-6">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="text-sm text-slate-600 dark:text-slate-400">
-              Showing {filteredMentions.length} of {mentions.actualTotal || mentions.length} mentions{mentions.isSample ? ' (sample)' : ''}
+              Showing <span className="font-semibold text-slate-900 dark:text-white">{filteredMentions.length}</span> of {mentions.actualTotal || mentions.length} mentions{mentions.isSample ? ' (sample)' : ''}
+              {clusterSimilar && filteredMentions.some(m => m.duplicateCount > 0) && (
+                <span className="ml-2 text-xs bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300 px-2.5 py-0.5 rounded-full font-medium">
+                  Clustering Active
+                </span>
+              )}
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-slate-600 dark:text-slate-400">Per page:</span>
-              <select
-                value={itemsPerPage}
-                onChange={(e) => {
-                  const newItemsPerPage = parseInt(e.target.value);
-                  setItemsPerPage(newItemsPerPage);
-                  setCurrentPage(1);
-                }}
-                className="px-3 py-1 text-sm bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white"
-              >
-                <option value={10}>10</option>
-                <option value={25}>25</option>
-                <option value={50}>50</option>
-                <option value={filteredMentions.length}>All</option>
-              </select>
+            <div className="flex flex-wrap items-center gap-4">
+              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 cursor-pointer select-none">
+                <input 
+                  type="checkbox" 
+                  checked={clusterSimilar} 
+                  onChange={(e) => setClusterSimilar(e.target.checked)}
+                  className="rounded border-slate-300 dark:border-slate-600 text-orange-500 focus:ring-orange-500"
+                />
+                <span className="font-medium">Cluster Similar & Duplicate Messages</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-600 dark:text-slate-400">Per page:</span>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    const newItemsPerPage = parseInt(e.target.value);
+                    setItemsPerPage(newItemsPerPage);
+                    setCurrentPage(1);
+                  }}
+                  className="px-3 py-1 text-sm bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white"
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={filteredMentions.length}>All</option>
+                </select>
+              </div>
             </div>
           </div>
         </div>
@@ -642,14 +577,17 @@ const MentionsExplorer = () => {
           {/* Table Header */}
           <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700">
             <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-              Mentions ({mentions.actualTotal || filteredMentions.length})
             </h2>
           </div>
- 
+
           {/* Table Content */}
           <div className="divide-y divide-slate-200 dark:divide-slate-700">
             {currentMentions.map((mention) => (
-              <div key={mention.id} className="p-6 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+              <div
+                key={mention.id}
+                onClick={() => setSelectedMention(mention)}
+                className="p-6 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors cursor-pointer"
+              >
                 {/* Header Row */}
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center space-x-4">
@@ -658,7 +596,7 @@ const MentionsExplorer = () => {
                       <span className="font-medium text-slate-900 dark:text-white">{mention.author}</span>
                       {mention.verified && (
                         <svg className="w-4 h-4 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                          <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                         </svg>
                       )}
                     </div>
@@ -670,6 +608,7 @@ const MentionsExplorer = () => {
                         href={mention.url || mention.link}
                         target="_blank"
                         rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
                         className="text-xs text-blue-400 hover:text-blue-300 truncate max-w-[180px] flex items-center gap-1"
                         title={mention.url || mention.link}
                       >
@@ -681,7 +620,12 @@ const MentionsExplorer = () => {
                     )}
                   </div>
 
-                  <div className="flex items-center space-x-3">
+                  <div className="flex items-center space-x-3 flex-wrap gap-y-1">
+                    {mention.duplicateCount > 0 && (
+                      <div className="px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800 flex items-center gap-1" title="Clustered duplicate/similar mentions">
+                        <span>+{mention.duplicateCount} similar across platforms</span>
+                      </div>
+                    )}
                     {/* Rage Index badge per mention */}
                     {(mention.rageIndex > 0 || mention.rageScore > 0) && (() => {
                       const ri = mention.rageIndex || mention.rageScore || 0;
@@ -790,11 +734,16 @@ const MentionsExplorer = () => {
                       href={mention.link}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
                       className="px-3 py-1 text-sm text-blue-400 hover:text-blue-300 font-medium border border-blue-500/30 rounded-lg hover:bg-blue-500/20 transition-colors"
                     >
                       View Original
                     </a>
-                    <button className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); setSelectedMention(mention); }}
+                      className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+                      title="Investigate mention details"
+                    >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z" />
                       </svg>
@@ -867,6 +816,248 @@ const MentionsExplorer = () => {
           )}
         </div>
       </div>
+
+      {/* Mention Investigation Drawer / Modal */}
+      {selectedMention && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-fade-in" onClick={() => setSelectedMention(null)}>
+          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl p-6 md:p-8" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-start justify-between border-b border-slate-200 dark:border-slate-700 pb-4 mb-6">
+              <div className="flex items-center space-x-3">
+                <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-700">
+                  {getPlatformIcon(selectedMention.platform)}
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">{selectedMention.author}</h3>
+                    {selectedMention.verified && (
+                      <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                    )}
+                    <span className="text-xs uppercase px-2 py-0.5 rounded font-semibold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                      {selectedMention.platform}
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-2 text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    <span>{new Date(selectedMention.timestamp).toLocaleString()}</span>
+                    <span>•</span>
+                    <span>{formatTimeAgo(selectedMention.timestamp)}</span>
+                    {selectedMention.location && (
+                      <>
+                        <span>•</span>
+                        <span>{selectedMention.location}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedMention(null)}
+                className="p-2 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Post Content */}
+            <div className="mb-6">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2">Original Post Content</h4>
+              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700/80 text-slate-800 dark:text-slate-200 text-base leading-relaxed">
+                "{selectedMention.text}"
+              </div>
+              {(selectedMention.url || selectedMention.link) && (
+                <div className="mt-3 flex items-center justify-end">
+                  <a
+                    href={selectedMention.url || selectedMention.link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-colors shadow-sm"
+                  >
+                    <span>View Direct on Platform</span>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
+                </div>
+              )}
+            </div>
+
+            {/* Rage Index & Emotion Intelligence Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+              {/* Rage Index Breakdown */}
+              <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 shadow-sm">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+                    Rage Index Gauge
+                  </h4>
+                  {(() => {
+                    const ri = selectedMention.rageIndex || selectedMention.rageScore || 0;
+                    const riColor = ri >= 80 ? 'bg-red-800 text-white' : ri >= 60 ? 'bg-red-500 text-white' : ri >= 40 ? 'bg-orange-500 text-white' : ri >= 20 ? 'bg-yellow-400 text-yellow-900' : 'bg-emerald-500 text-white';
+                    return (
+                      <span className={`px-3 py-1 rounded-full text-sm font-bold ${riColor}`}>
+                        RI {ri} / 100
+                      </span>
+                    );
+                  })()}
+                </div>
+                <div className="w-full bg-slate-200 dark:bg-slate-700 h-2.5 rounded-full overflow-hidden mb-4">
+                  <div
+                    className={`h-full transition-all duration-500 ${(selectedMention.rageIndex || selectedMention.rageScore || 0) >= 80 ? 'bg-red-600' : (selectedMention.rageIndex || selectedMention.rageScore || 0) >= 60 ? 'bg-red-500' : (selectedMention.rageIndex || selectedMention.rageScore || 0) >= 40 ? 'bg-orange-500' : 'bg-emerald-500'}`}
+                    style={{ width: `${Math.min(100, Math.max(5, selectedMention.rageIndex || selectedMention.rageScore || 0))}%` }}
+                  ></div>
+                </div>
+                <div className="space-y-2 text-xs text-slate-600 dark:text-slate-400">
+                  <div className="flex justify-between">
+                    <span>Sentiment Classification:</span>
+                    <span className="font-semibold uppercase text-slate-800 dark:text-slate-200">{selectedMention.sentiment}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Author Influence Level:</span>
+                    <span className="font-semibold uppercase text-slate-800 dark:text-slate-200">{selectedMention.influence}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Classification Confidence:</span>
+                    <span>{renderConfidence(selectedMention.confidence, selectedMention.isSarcastic, selectedMention.isAmbiguous, selectedMention.isShortText)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Emotion Breakdown */}
+              <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 shadow-sm">
+                <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
+                  Detected Emotions
+                </h4>
+                <div className="space-y-3">
+                  {selectedMention.emotions && selectedMention.emotions.length > 0 ? (
+                    selectedMention.emotions.map((emo, idx) => {
+                      const label = emo.label || emo.emotion || 'neutral';
+                      const score = emo.score !== undefined ? Math.round(emo.score * 100) : 80;
+                      return (
+                        <div key={idx} className="space-y-1">
+                          <div className="flex justify-between text-xs font-medium">
+                            <span className="capitalize flex items-center gap-1.5 text-slate-800 dark:text-slate-200">
+                              {getEmotionIcon(label)} {label}
+                            </span>
+                            <span className="text-slate-500 dark:text-slate-400">{score}%</span>
+                          </div>
+                          <div className="w-full bg-slate-100 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
+                            <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${score}%` }}></div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      {getEmotionIcon(selectedMention.emotion)}
+                      <span className="text-sm font-semibold capitalize text-slate-800 dark:text-slate-200">{selectedMention.emotion}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Engagement & Themes Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+              {/* Engagement Stats */}
+              <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/30">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-3">Engagement Breakdown</h4>
+                <div className="grid grid-cols-4 gap-2 text-center">
+                  <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                    <div className="text-base font-bold text-slate-900 dark:text-white">{selectedMention.engagement?.likes || 0}</div>
+                    <div className="text-[10px] text-slate-500 uppercase">Likes</div>
+                  </div>
+                  <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                    <div className="text-base font-bold text-slate-900 dark:text-white">{selectedMention.engagement?.comments || 0}</div>
+                    <div className="text-[10px] text-slate-500 uppercase">Comments</div>
+                  </div>
+                  <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                    <div className="text-base font-bold text-slate-900 dark:text-white">{selectedMention.engagement?.shares || 0}</div>
+                    <div className="text-[10px] text-slate-500 uppercase">Shares</div>
+                  </div>
+                  <div className="p-2 rounded-lg bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800/50">
+                    <div className="text-base font-bold text-orange-600 dark:text-orange-400">{selectedMention.engagement?.total || 0}</div>
+                    <div className="text-[10px] text-orange-700 dark:text-orange-300 uppercase font-semibold">Total</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Themes & Keywords */}
+              <div className="p-5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/30">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-3">Themes & Keywords</h4>
+                <div className="space-y-2">
+                  {selectedMention.themes && selectedMention.themes.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedMention.themes.map((t, idx) => (
+                        <span key={idx} className="px-2.5 py-1 bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300 rounded-lg text-xs font-medium border border-purple-200 dark:border-purple-800">
+                          #{typeof t === 'string' ? t : (t.theme || t.name || t.label || '')}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {selectedMention.keywords && selectedMention.keywords.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedMention.keywords.map((k, idx) => (
+                        <span key={idx} className="px-2 py-0.5 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded text-xs border border-slate-200 dark:border-slate-700">
+                          {k}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Clustered Duplicates List */}
+            {selectedMention.duplicateMentions && selectedMention.duplicateMentions.length > 0 && (
+              <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-700">
+                <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-3 flex items-center justify-between">
+                  <span>Clustered Similar & Duplicate Posts ({selectedMention.duplicateCount})</span>
+                  <span className="text-xs font-normal text-slate-500">Exact / near-identical matches</span>
+                </h4>
+                <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
+                  {selectedMention.duplicateMentions.map((dupe, dIdx) => (
+                    <div key={dIdx} className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 flex items-start justify-between gap-3 text-sm">
+                      <div className="space-y-1 flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 h-5 flex items-center justify-center shrink-0">{getPlatformIcon(dupe.platform)}</span>
+                          <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">{dupe.author}</span>
+                          <span className="text-xs text-slate-400">• {formatTimeAgo(dupe.timestamp)}</span>
+                        </div>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2">"{dupe.text}"</p>
+                      </div>
+                      {(dupe.url || dupe.link) && (
+                        <a
+                          href={dupe.url || dupe.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-2.5 py-1.5 text-xs bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-blue-500 border border-slate-200 dark:border-slate-600 rounded-lg shrink-0 font-medium transition-colors"
+                        >
+                          View
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Footer / Close */}
+            <div className="mt-8 flex justify-end">
+              <button
+                onClick={() => setSelectedMention(null)}
+                className="px-5 py-2.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-white font-medium rounded-xl transition-colors text-sm"
+              >
+                Close Drawer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
