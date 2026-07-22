@@ -15,7 +15,8 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
-  Plug
+  Plug,
+  Calendar
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
@@ -44,6 +45,7 @@ const EnhancedSidebar = ({ isCollapsed, onToggle, isMobile }) => {
           { name: 'Trends', path: '/dashboard/reports/trends', icon: TrendingUp, feature: 'REPORTS_TRENDS' },
           { name: 'Mentions', path: '/dashboard/reports/mentions', icon: MessageSquare, feature: 'REPORTS_MENTIONS' },
           { name: 'Competitive Analysis', path: '/dashboard/reports/competitive', icon: Users, feature: 'COMPETITIVE_ANALYSIS' },
+          { name: 'Events & Impact', path: '/dashboard/reports/events', icon: Calendar, feature: 'REPORTS_OVERVIEW' },
         ]
       },
       {

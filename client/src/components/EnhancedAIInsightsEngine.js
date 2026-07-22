@@ -35,7 +35,9 @@ import {
   Settings,
   ChevronRight,
   Star,
-  TrendingDown
+  TrendingDown,
+  Send,
+  Bot
 } from 'lucide-react';
 
 const EnhancedAIInsightsEngine = () => {
@@ -79,6 +81,16 @@ const EnhancedAIInsightsEngine = () => {
   const [isUpdatingData, setIsUpdatingData] = useState(false);
   const [expandedInsights, setExpandedInsights] = useState(new Set());
 
+  // Ask RageRadar state
+  const [askQuestion, setAskQuestion] = useState('');
+  const [askHistory, setAskHistory] = useState([]);
+  const [askLoading, setAskLoading] = useState(false);
+
+  // Autonomous Analyst state
+  const [autonomousBriefing, setAutonomousBriefing] = useState(null);
+  const [autonomousLoading, setAutonomousLoading] = useState(false);
+  const [autonomousError, setAutonomousError] = useState(null);
+
   // Toggle insight expansion
   const toggleInsightExpansion = (insightId) => {
     setExpandedInsights(prev => {
@@ -92,7 +104,83 @@ const EnhancedAIInsightsEngine = () => {
     });
   };
 
+  // Handle Ask RageRadar question submission
+  const handleAskQuestion = async () => {
+    if (!askQuestion.trim() || askLoading) return;
 
+    const question = askQuestion.trim();
+    setAskQuestion('');
+    setAskLoading(true);
+
+    try {
+      const selectedBrand = currentBrand || analyzedBrands?.[0];
+      const brandId = selectedBrand?.brandId || selectedBrand?.id || `${currentUser?.uid}_${(selectedBrand?.brandName || 'brand').toLowerCase().replace(/\s+/g, '_')}`;
+
+      const token = await currentUser?.getIdToken?.();
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+      const response = await fetch(`${process.env.REACT_APP_API_URL || ''}/api/ai/ask`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({ brandId, message: question, history: askHistory.slice(-6).map(h => ({ role: 'user', content: h.question })) })
+      });
+
+      const data = await response.json();
+
+      setAskHistory(prev => [...prev, {
+        question,
+        answer: data.answer || data?.answer || 'I was unable to process that question. Please try again.',
+        evidence: data.evidence || [],
+        suggestedQuestions: data.suggestedQuestions || []
+      }]);
+    } catch (err) {
+      setAskHistory(prev => [...prev, {
+        question,
+        answer: `I encountered an error: ${err.message}. Please ensure the backend server is running.`,
+        evidence: [],
+        suggestedQuestions: []
+      }]);
+    } finally {
+      setAskLoading(false);
+      setTimeout(() => {
+        const chatEl = document.getElementById('ask-rageradar-chat');
+        if (chatEl) chatEl.scrollTop = chatEl.scrollHeight;
+      }, 100);
+    }
+  };
+
+  // Handle Autonomous Analyst execution
+  const handleRunAutonomousAnalyst = async () => {
+    setAutonomousLoading(true);
+    setAutonomousError(null);
+    setAutonomousBriefing(null);
+
+    try {
+      const selectedBrand = currentBrand || analyzedBrands?.[0];
+      const brandId = selectedBrand?.brandId || selectedBrand?.id || `${currentUser?.uid}_${(selectedBrand?.brandName || 'brand').toLowerCase().replace(/\s+/g, '_')}`;
+
+      const token = await currentUser?.getIdToken?.();
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+      const response = await fetch(`${process.env.REACT_APP_API_URL || ''}/api/ai/autonomous/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({ brandId })
+      });
+
+      const data = await response.json();
+
+      if (data.success && data.briefing) {
+        setAutonomousBriefing(data.briefing);
+      } else {
+        setAutonomousError(data.error || 'Failed to generate executive briefing. Please try again.');
+      }
+    } catch (err) {
+      setAutonomousError(`Error: ${err.message}. Ensure the backend server is running.`);
+    } finally {
+      setAutonomousLoading(false);
+    }
+  };
 
 
   const [aiPerformance, setAiPerformance] = useState({
@@ -1433,6 +1521,8 @@ const EnhancedAIInsightsEngine = () => {
               },
               { id: 'predictions', label: 'Predictions', icon: TrendingUp, count: predictions.length },
               { id: 'recommendations', label: 'Recommendations', icon: Lightbulb, count: recommendations.length },
+              { id: 'ask', label: 'Ask RageRadar', icon: MessageSquare, count: askHistory.length },
+              { id: 'autonomous', label: 'Autonomous Analyst', icon: Bot, count: autonomousBriefing ? 1 : null },
               { id: 'performance', label: 'AI Performance', icon: Activity, count: null }
             ].map((tab) => (
               <button
@@ -2524,6 +2614,311 @@ const EnhancedAIInsightsEngine = () => {
               </div>
             </div>
           )}
+
+          {/* Ask RageRadar Tab */}
+          {activeTab === 'ask' && (
+            <div className="space-y-6">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-lg overflow-hidden">
+                <div className="bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-4">
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    <MessageSquare className="w-5 h-5" />
+                    Ask RageRadar — Conversational Brand Intelligence
+                  </h3>
+                  <p className="text-indigo-200 text-sm mt-1">Ask questions about your brand's reputation, sentiment, and trends. Answers are grounded in real mention evidence.</p>
+                </div>
+
+                {/* Chat History */}
+                <div className="p-6 space-y-4 max-h-[500px] overflow-y-auto" id="ask-rageradar-chat">
+                  {askHistory.length === 0 && (
+                    <div className="text-center py-12">
+                      <MessageSquare className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
+                      <p className="text-slate-500 dark:text-slate-400 text-lg font-medium">Start a conversation</p>
+                      <p className="text-slate-400 dark:text-slate-500 text-sm mt-1">Ask about Rage Index, themes, platform breakdowns, or recommendations.</p>
+                      <div className="flex flex-wrap justify-center gap-2 mt-4">
+                        {['Why is Rage Index high?', 'What should we fix first?', 'Which platform has most issues?'].map((q) => (
+                          <button
+                            key={q}
+                            onClick={() => { setAskQuestion(q); }}
+                            className="px-3 py-1.5 text-sm bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-full hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
+                          >
+                            {q}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {askHistory.map((entry, idx) => (
+                    <div key={idx} className="space-y-3">
+                      {/* User message */}
+                      <div className="flex justify-end">
+                        <div className="bg-indigo-600 text-white px-4 py-2.5 rounded-2xl rounded-tr-md max-w-[75%] text-sm">
+                          {entry.question}
+                        </div>
+                      </div>
+                      {/* AI answer */}
+                      <div className="flex justify-start">
+                        <div className="bg-slate-100 dark:bg-slate-700 px-4 py-3 rounded-2xl rounded-tl-md max-w-[85%]">
+                          <p className="text-sm text-slate-800 dark:text-slate-200 leading-relaxed">{entry.answer}</p>
+                          {/* Evidence cards */}
+                          {entry.evidence && entry.evidence.length > 0 && (
+                            <div className="mt-3 space-y-2">
+                              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Evidence Sources</p>
+                              {entry.evidence.map((ev, evIdx) => (
+                                <div key={evIdx} className="bg-white dark:bg-slate-600 p-2.5 rounded-lg border border-slate-200 dark:border-slate-500">
+                                  <p className="text-xs text-slate-700 dark:text-slate-300 line-clamp-2">{ev.text}</p>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <span className="text-xs px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded">{ev.platform}</span>
+                                    {ev.url && <a href={ev.url} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-500 hover:underline">View source →</a>}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {/* Suggested Questions */}
+                          {entry.suggestedQuestions && entry.suggestedQuestions.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mt-3">
+                              {entry.suggestedQuestions.map((sq, sqIdx) => (
+                                <button
+                                  key={sqIdx}
+                                  onClick={() => setAskQuestion(sq)}
+                                  className="px-2.5 py-1 text-xs bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-full hover:bg-indigo-100 transition-colors"
+                                >
+                                  {sq}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  {askLoading && (
+                    <div className="flex justify-start">
+                      <div className="bg-slate-100 dark:bg-slate-700 px-4 py-3 rounded-2xl rounded-tl-md">
+                        <div className="flex items-center gap-2 text-sm text-slate-500">
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          Analyzing your question...
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Input */}
+                <div className="border-t border-slate-200 dark:border-slate-700 px-6 py-4">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="text"
+                      value={askQuestion}
+                      onChange={(e) => setAskQuestion(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && askQuestion.trim() && !askLoading) {
+                          handleAskQuestion();
+                        }
+                      }}
+                      placeholder="Ask about your brand's reputation..."
+                      className="flex-1 px-4 py-2.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm text-slate-800 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    />
+                    <button
+                      onClick={handleAskQuestion}
+                      disabled={!askQuestion.trim() || askLoading}
+                      className="p-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl transition-colors"
+                    >
+                      <Send className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Autonomous Analyst Tab */}
+          {activeTab === 'autonomous' && (
+            <div className="space-y-6">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-lg overflow-hidden">
+                <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-5">
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    <Bot className="w-5 h-5" />
+                    Autonomous AI Brand Analyst
+                  </h3>
+                  <p className="text-emerald-200 text-sm mt-1">Activate the autonomous agent to research, correlate evidence across platforms, and generate a C-level Executive Briefing.</p>
+                </div>
+
+                <div className="p-6">
+                  {!autonomousBriefing && !autonomousLoading && (
+                    <div className="text-center py-12">
+                      <Bot className="w-16 h-16 text-emerald-300 dark:text-emerald-600 mx-auto mb-4" />
+                      <p className="text-slate-700 dark:text-slate-300 text-xl font-bold mb-2">Ready to Investigate</p>
+                      <p className="text-slate-500 dark:text-slate-400 text-sm mb-6 max-w-md mx-auto">The agent will autonomously plan research, analyze multi-platform evidence, assess risks, and synthesize an executive briefing.</p>
+                      <button
+                        onClick={handleRunAutonomousAnalyst}
+                        className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-semibold rounded-xl shadow-lg transition-all"
+                      >
+                        <Rocket className="w-5 h-5" />
+                        Activate Autonomous Analyst
+                      </button>
+                    </div>
+                  )}
+
+                  {autonomousLoading && (
+                    <div className="text-center py-12">
+                      <RefreshCw className="w-12 h-12 text-emerald-500 mx-auto mb-4 animate-spin" />
+                      <p className="text-slate-700 dark:text-slate-300 text-lg font-bold">Agent Investigating...</p>
+                      <p className="text-slate-500 dark:text-slate-400 text-sm mt-2">Correlating multi-platform evidence and generating executive briefing. This may take a few moments.</p>
+                    </div>
+                  )}
+
+                  {autonomousError && (
+                    <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 mb-6">
+                      <p className="text-red-700 dark:text-red-400 text-sm">{autonomousError}</p>
+                    </div>
+                  )}
+
+                  {autonomousBriefing && (
+                    <div className="space-y-6">
+                      {/* Executive Summary */}
+                      <div className="bg-gradient-to-r from-slate-50 to-emerald-50 dark:from-slate-700 dark:to-emerald-900/20 rounded-xl p-6 border border-emerald-200 dark:border-emerald-800">
+                        <h4 className="text-lg font-bold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+                          <Shield className="w-5 h-5 text-emerald-600" />
+                          Executive Summary
+                        </h4>
+                        <p className="text-slate-700 dark:text-slate-300 leading-relaxed">{autonomousBriefing.executiveSummary}</p>
+                      </div>
+
+                      {/* Metrics Snapshot */}
+                      {autonomousBriefing.metricsSnapshot && (
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div className="bg-white dark:bg-slate-700 rounded-xl p-4 text-center border border-slate-200 dark:border-slate-600">
+                            <div className="text-2xl font-bold text-red-600">{Math.round(autonomousBriefing.metricsSnapshot.rageIndex)}%</div>
+                            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Rage Index</div>
+                          </div>
+                          <div className="bg-white dark:bg-slate-700 rounded-xl p-4 text-center border border-slate-200 dark:border-slate-600">
+                            <div className="text-2xl font-bold text-blue-600">{autonomousBriefing.metricsSnapshot.totalMentions?.toLocaleString()}</div>
+                            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Total Mentions</div>
+                          </div>
+                          <div className="bg-white dark:bg-slate-700 rounded-xl p-4 text-center border border-slate-200 dark:border-slate-600">
+                            <div className="text-2xl font-bold text-green-600">{autonomousBriefing.metricsSnapshot.positivePercentage}%</div>
+                            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Positive</div>
+                          </div>
+                          <div className="bg-white dark:bg-slate-700 rounded-xl p-4 text-center border border-slate-200 dark:border-slate-600">
+                            <div className="text-2xl font-bold text-purple-600">{autonomousBriefing.metricsSnapshot.platformsAnalyzed}</div>
+                            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Platforms</div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Key Findings */}
+                      {autonomousBriefing.keyFindings && autonomousBriefing.keyFindings.length > 0 && (
+                        <div className="bg-white dark:bg-slate-700 rounded-xl p-6 border border-slate-200 dark:border-slate-600">
+                          <h4 className="text-lg font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                            <Eye className="w-5 h-5 text-blue-600" />
+                            Key Findings
+                          </h4>
+                          <div className="space-y-4">
+                            {autonomousBriefing.keyFindings.map((finding) => (
+                              <div key={finding.id} className="bg-slate-50 dark:bg-slate-600 rounded-lg p-4">
+                                <div className="flex items-center justify-between mb-2">
+                                  <h5 className="font-semibold text-slate-900 dark:text-white">{finding.title}</h5>
+                                  <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                                    finding.impactLevel === 'Critical' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                                    finding.impactLevel === 'High' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' :
+                                    'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                                  }`}>{finding.impactLevel} Impact</span>
+                                </div>
+                                <p className="text-sm text-slate-600 dark:text-slate-300">{finding.description}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Risk Assessments */}
+                      {autonomousBriefing.riskAssessments && autonomousBriefing.riskAssessments.length > 0 && (
+                        <div className="bg-white dark:bg-slate-700 rounded-xl p-6 border border-slate-200 dark:border-slate-600">
+                          <h4 className="text-lg font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                            <AlertTriangle className="w-5 h-5 text-amber-600" />
+                            Risk Assessment Matrix
+                          </h4>
+                          <div className="space-y-4">
+                            {autonomousBriefing.riskAssessments.map((risk, rIdx) => (
+                              <div key={rIdx} className="bg-slate-50 dark:bg-slate-600 rounded-lg p-4">
+                                <div className="flex items-center justify-between mb-2">
+                                  <h5 className="font-semibold text-slate-900 dark:text-white text-sm">{risk.riskArea}</h5>
+                                  <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                                    risk.score >= 70 ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                                    risk.score >= 50 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+                                    'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                                  }`}>{risk.status}</span>
+                                </div>
+                                <div className="w-full bg-slate-200 dark:bg-slate-500 rounded-full h-2 mb-2">
+                                  <div className={`h-2 rounded-full ${
+                                    risk.score >= 70 ? 'bg-red-500' : risk.score >= 50 ? 'bg-amber-500' : 'bg-green-500'
+                                  }`} style={{ width: `${risk.score}%` }} />
+                                </div>
+                                <p className="text-xs text-slate-500 dark:text-slate-400">{risk.notes}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Strategic Actions */}
+                      {autonomousBriefing.strategicActions && autonomousBriefing.strategicActions.length > 0 && (
+                        <div className="bg-white dark:bg-slate-700 rounded-xl p-6 border border-slate-200 dark:border-slate-600">
+                          <h4 className="text-lg font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                            <Rocket className="w-5 h-5 text-emerald-600" />
+                            Strategic Action Plan
+                          </h4>
+                          <div className="space-y-4">
+                            {autonomousBriefing.strategicActions.map((action, aIdx) => (
+                              <div key={aIdx} className="bg-slate-50 dark:bg-slate-600 rounded-lg p-4 border-l-4 border-emerald-500">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <span className="text-xs font-bold px-2 py-1 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 rounded">{action.priority}</span>
+                                  <span className="text-xs text-slate-500 dark:text-slate-400">→ {action.department}</span>
+                                </div>
+                                <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{action.action}</p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 italic">Expected Impact: {action.expectedImpact}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Evidence Links */}
+                      {autonomousBriefing.evidenceLinks && autonomousBriefing.evidenceLinks.length > 0 && (
+                        <div className="bg-white dark:bg-slate-700 rounded-xl p-6 border border-slate-200 dark:border-slate-600">
+                          <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-3">Evidence Sources</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {autonomousBriefing.evidenceLinks.map((link, lIdx) => (
+                              <a key={lIdx} href={link.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 p-2.5 bg-slate-50 dark:bg-slate-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-500 transition-colors text-sm">
+                                <span className="text-xs px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded">{link.platform}</span>
+                                <span className="text-slate-700 dark:text-slate-300 truncate flex-1">{link.title}</span>
+                                <ChevronRight className="w-4 h-4 text-slate-400" />
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Regenerate */}
+                      <div className="text-center">
+                        <button
+                          onClick={handleRunAutonomousAnalyst}
+                          className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
+                        >
+                          <RefreshCw className="w-4 h-4" />
+                          Regenerate Briefing
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
         </div>
       </div>
     </div>

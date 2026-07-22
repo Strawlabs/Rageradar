@@ -32,7 +32,11 @@ class ChatEngine {
                 .limit(1);
 
             if (error || !analyses || analyses.length === 0) {
-                return "I couldn't find any analysis data for this brand. Please run a brand analysis first.";
+                return {
+                    answer: "I couldn't find any analysis data for this brand. Please run a brand analysis first.",
+                    evidence: [],
+                    suggestedQuestions: []
+                };
             }
 
             const analysis = analyses[0];
@@ -45,6 +49,34 @@ class ChatEngine {
             // 2. Classify intent
             const classification = this.classifier.classifyQuery(message);
             
+            // Extract grounded evidence mentions specific to this intent
+            const relevantMentions = mentions
+                .filter(m => {
+                    if (classification.intent === 'explain_rage') return m.rageIndex > 60 || m.sentiment === 'negative' || m.primaryEmotion === 'anger';
+                    if (classification.intent === 'theme_dive' && classification.theme) {
+                        return (m.content || m.text || '').toLowerCase().includes(classification.theme.toLowerCase()) || (m.themes && m.themes.includes(classification.theme));
+                    }
+                    if (classification.intent === 'platform_comparison' && classification.platform) {
+                        return m.platform === classification.platform;
+                    }
+                    return m.sentiment === 'negative' || m.rageIndex >= 50;
+                })
+                .slice(0, 4)
+                .map(m => ({
+                    text: m.content || m.text || '',
+                    platform: m.platform || 'web',
+                    url: m.url || '',
+                    timestamp: m.timestamp || m.created || new Date().toISOString(),
+                    rageIndex: m.rageIndex || 50,
+                    sentiment: m.sentiment || 'neutral'
+                }));
+
+            const suggestedQuestions = [
+                `Why is ${brandName}'s Rage Index currently at ${rageIndex}?`,
+                `What are the main issues on ${Object.keys(platformBreakdown)[0] || 'Reddit'}?`,
+                `How can we fix the "${themes[0]?.theme || 'dominant complaint'}" issue?`
+            ];
+
             // 3. Build filtered context based on intent
             let contextText = '';
             
@@ -62,7 +94,7 @@ Current Rage Index: ${rageIndex}`;
                     contextText = `Intent: Platform analysis. Target Platform: ${pName || 'All'}
 Platform Stats: ${JSON.stringify(platformBreakdown)}
 Recent mentions for platform: ${JSON.stringify(
-                        mentions.filter(m => !pName || m.platform === pName).slice(0, 5).map(m => m.content)
+                        mentions.filter(m => !pName || m.platform === pName).slice(0, 5).map(m => m.content || m.text)
                     )}`;
                     break;
 
@@ -75,9 +107,9 @@ Trendline Summary: ${JSON.stringify(analysis.trendline_summary || 'No historical
                 case 'theme_dive':
                     const themeName = classification.theme;
                     const matchingMentions = mentions
-                        .filter(m => m.content && m.content.toLowerCase().includes(themeName))
+                        .filter(m => (m.content || m.text || '').toLowerCase().includes(themeName || ''))
                         .slice(0, 5)
-                        .map(m => m.content);
+                        .map(m => m.content || m.text);
                     contextText = `Intent: Topic Deep Dive. Target Topic: ${themeName}
 Matching Mentions: ${JSON.stringify(matchingMentions)}
 Themes: ${JSON.stringify(themes)}`;
@@ -87,7 +119,7 @@ Themes: ${JSON.stringify(themes)}`;
                     const highRageMentions = mentions
                         .filter(m => m.rageIndex > 60 || (m.emotions && m.emotions.some(e => e.label === 'anger' && e.score > 0.5)))
                         .slice(0, 5)
-                        .map(m => m.content);
+                        .map(m => m.content || m.text);
                     contextText = `Intent: Explain why rage index is high.
 Current Rage Index: ${rageIndex}
 Top High-Rage Mentions: ${JSON.stringify(highRageMentions)}
@@ -137,7 +169,11 @@ Write a helpful, conversational, professional response in 3-5 sentences. Referen
                             },
                             timeout: 10000
                         });
-                        return response.data.choices[0].message.content.trim();
+                        return {
+                            answer: response.data.choices[0].message.content.trim(),
+                            evidence: relevantMentions,
+                            suggestedQuestions
+                        };
                     } else if (hasRealGeminiKey) {
                         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
                             contents: [{ parts: [{ text: prompt }] }]
@@ -145,7 +181,11 @@ Write a helpful, conversational, professional response in 3-5 sentences. Referen
                             headers: { 'Content-Type': 'application/json' },
                             timeout: 10000
                         });
-                        return response.data.candidates[0].content.parts[0].text.trim();
+                        return {
+                            answer: response.data.candidates[0].content.parts[0].text.trim(),
+                            evidence: relevantMentions,
+                            suggestedQuestions
+                        };
                     }
                 } catch (llmError) {
                     logger.error('Chat LLM call failed, using rule-based answer', { error: llmError.message });
@@ -153,11 +193,20 @@ Write a helpful, conversational, professional response in 3-5 sentences. Referen
             }
 
             // Rule-based conversational fallback response
-            return this.generateFallbackAnswer(classification, brandName, rageIndex, themes, platformBreakdown, message);
+            const fallbackAnswer = this.generateFallbackAnswer(classification, brandName, rageIndex, themes, platformBreakdown, message);
+            return {
+                answer: fallbackAnswer,
+                evidence: relevantMentions,
+                suggestedQuestions
+            };
 
         } catch (error) {
             logger.error('ChatEngine failed to answer question', { error: error.message });
-            return "I apologize, but I encountered an error while retrieving the metrics to answer your question.";
+            return {
+                answer: "I apologize, but I encountered an error while retrieving the metrics to answer your question.",
+                evidence: [],
+                suggestedQuestions: []
+            };
         }
     }
 

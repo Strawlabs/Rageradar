@@ -53,6 +53,7 @@ import ReportsAnalysis from './components/ReportsAnalysis';
 import ReportsTrends from './components/ReportsTrends';
 import MentionsExplorer from './components/MentionsExplorer';
 import CompetitiveAnalysis from './components/CompetitiveAnalysis';
+import ReportsEvents from './components/ReportsEvents';
 
 // Phase 3 Components
 import AlertsDashboard from './components/AlertsDashboard';
@@ -220,6 +221,14 @@ function App() {
                   <PrivateRoute>
                     <EnhancedLayout>
                       <CompetitiveAnalysis />
+                    </EnhancedLayout>
+                  </PrivateRoute>
+                } />
+
+                <Route path="/dashboard/reports/events" element={
+                  <PrivateRoute>
+                    <EnhancedLayout>
+                      <ReportsEvents />
                     </EnhancedLayout>
                   </PrivateRoute>
                 } />

@@ -337,6 +337,20 @@ const CleanModernDashboard = () => {
     }
   };
 
+  const tickerMentions = React.useMemo(() => {
+    if (!currentBrand) return [];
+    if (currentBrand.searchResults && currentBrand.searchResults.length > 0) {
+      return currentBrand.searchResults;
+    }
+    if (currentBrand.topMentions && currentBrand.topMentions.length > 0) {
+      return currentBrand.topMentions;
+    }
+    if (currentBrand.mentions && currentBrand.mentions.length > 0) {
+      return currentBrand.mentions;
+    }
+    return generateMentionsFromKPIs(calculateKPIs(currentBrand, filters), currentBrand, filters.timeRange);
+  }, [currentBrand, filters.timeRange, filters.platform, filters.sentiment]);
+
   // Loading state
   if (loading) {
     return (
@@ -372,19 +386,9 @@ const CleanModernDashboard = () => {
           </div>
         </div>
       </div>
-  const tickerMentions = React.useMemo(() => {
-    if (!currentBrand) return [];
-    if (currentBrand.searchResults && currentBrand.searchResults.length > 0) {
-      return currentBrand.searchResults;
-    }
-    if (currentBrand.topMentions && currentBrand.topMentions.length > 0) {
-      return currentBrand.topMentions;
-    }
-    if (currentBrand.mentions && currentBrand.mentions.length > 0) {
-      return currentBrand.mentions;
-    }
-    return generateMentionsFromKPIs(calculateKPIs(currentBrand, filters), currentBrand, filters.timeRange);
-  }, [currentBrand, filters.timeRange, filters.platform, filters.sentiment]);
+    );
+  }
+
 
   return (
     <div className="h-full bg-background">

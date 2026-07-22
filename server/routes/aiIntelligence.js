@@ -7,9 +7,11 @@ const express = require('express');
 const router = express.Router();
 const { supabase } = require('../supabase');
 const ChatEngine = require('../ai/askRageRadar/chatEngine');
+const AutonomousAnalyst = require('../ai/autonomousAnalyst/autonomousAnalyst');
 const logger = require('../utils/logger');
 
 const chatEngine = new ChatEngine();
+const autonomousAnalyst = new AutonomousAnalyst();
 
 // Authentication middleware (reused from insights)
 const authenticateUser = async (req, res, next) => {
@@ -159,15 +161,54 @@ router.post('/ask', authenticateUser, async (req, res) => {
         }
 
         logger.info(`AskRageRadar: Question received for brand: ${brandId}`);
-        const answer = await chatEngine.answerQuestion(brandId, message, history);
+        const result = await chatEngine.answerQuestion(brandId, message, history);
 
-        res.json({
-            success: true,
-            answer
-        });
+        if (typeof result === 'object' && result !== null && result.answer) {
+            res.json({
+                success: true,
+                answer: result.answer,
+                evidence: result.evidence || [],
+                suggestedQuestions: result.suggestedQuestions || []
+            });
+        } else {
+            res.json({
+                success: true,
+                answer: typeof result === 'string' ? result : 'Analysis complete.',
+                evidence: [],
+                suggestedQuestions: []
+            });
+        }
     } catch (err) {
         logger.error('Failed to process conversation question', { error: err.message });
         res.status(500).json({ error: 'Failed to process question', details: err.message });
+    }
+});
+
+/**
+ * Autonomous AI Brand Analyst Endpoint
+ * POST /api/ai/autonomous/analyze
+ */
+router.post('/autonomous/analyze', authenticateUser, async (req, res) => {
+    try {
+        const { brandId, focusArea } = req.body;
+
+        if (!brandId) {
+            return res.status(400).json({ error: 'Missing required parameter: brandId' });
+        }
+
+        logger.info(`AutonomousAnalyst: Briefing requested for brand: ${brandId}`);
+        const briefing = await autonomousAnalyst.runAutonomousBriefing(brandId, {
+            focusArea,
+            userId: req.user.uid
+        });
+
+        res.json({
+            success: true,
+            briefing
+        });
+    } catch (err) {
+        logger.error('Failed to run autonomous briefing', { error: err.message });
+        res.status(500).json({ error: 'Failed to run autonomous analyst', details: err.message });
     }
 });
 

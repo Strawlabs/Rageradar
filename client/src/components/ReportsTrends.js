@@ -9,6 +9,7 @@ import FilterBar from './shared/FilterBar';
 import ColorfulWidget from './shared/ColorfulWidget';
 import PageHeader from './shared/PageHeader';
 import EmptyState from './shared/EmptyState';
+import ReportExport from './ReportExport';
 import axios from 'axios';
 import TrendlineChart from './TrendlineChart';
 import { Line, Bar } from 'react-chartjs-2';
@@ -38,6 +39,7 @@ ChartJS.register(
   TimeScale
 );
 
+
 const ReportsTrends = () => {
   const [searchParams] = useSearchParams();
   const { currentUser } = useAuth();
@@ -54,6 +56,7 @@ const ReportsTrends = () => {
   const [viewOption, setViewOption] = useState('timeline'); // New view options state
   const [granularity, setGranularity] = useState('day');
   const [apiTrendline, setApiTrendline] = useState(null);
+  const [showExportModal, setShowExportModal] = useState(false);
 
   // Apply time range filters to data using shared KPI calculation
   const applyTimeRangeFilter = (rawData) => {
@@ -642,6 +645,14 @@ const ReportsTrends = () => {
             </svg>
           }
           iconBg="from-green-500 to-emerald-500"
+          action={
+            <button onClick={() => setShowExportModal(true)} className="bg-orange-500 hover:bg-orange-600 text-white font-medium flex items-center gap-2 px-4 py-2 rounded-lg shadow transition-colors">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Export Trends Report
+            </button>
+          }
         />
       </div>
 
@@ -1209,6 +1220,17 @@ const ReportsTrends = () => {
           </div>
         </div>
       </div>
+
+      {showExportModal && (
+        <ReportExport
+          analysisData={data || { rageIndex: currentBrand?.rageIndex || 28, totalMentions: currentBrand?.totalMentions || 1000, mentionsChange: 12 }}
+          brandName={brandName || 'Brand'}
+          appliedFilters={filters}
+          timeRangeLabel={filters?.timeRange || 'Last 7 days'}
+          reportType="trends"
+          onClose={() => setShowExportModal(false)}
+        />
+      )}
     </div>
   );
 };
