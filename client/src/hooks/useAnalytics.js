@@ -3,7 +3,7 @@
  * Provides easy-to-use hooks for tracking user behavior and Cooper principles
  */
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import cooperAnalytics from '../utils/cooperAnalytics';
 import abTesting from '../utils/abTesting';
 
@@ -96,11 +96,13 @@ export const useCooperTracking = () => {
 
 // Hook for A/B testing
 export const useABTest = (testId, variants = []) => {
-  const variant = useRef(null);
+  const [variant, setVariant] = useState(() => {
+    return variants.length > 0 ? abTesting.getVariant(testId) : null;
+  });
 
   useEffect(() => {
     if (variants.length > 0) {
-      variant.current = abTesting.getVariant(testId);
+      setVariant(abTesting.getVariant(testId));
     }
   }, [testId, variants]);
 
@@ -108,7 +110,7 @@ export const useABTest = (testId, variants = []) => {
     abTesting.trackConversion(testId, conversionType, value);
   }, [testId]);
 
-  return { variant: variant.current, trackConversion };
+  return { variant, trackConversion };
 };
 
 // Hook for time-to-insight tracking

@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
 const PasswordReset = () => {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const { resetPassword } = useAuth();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -19,21 +21,27 @@ const PasswordReset = () => {
       setMessage('');
       setLoading(true);
       
-      const response = await fetch('/api/notifications/password-reset', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ email })
-      });
-      
-      const result = await response.json();
-      
-      if (response.ok) {
-        setMessage('Password reset email sent! Check your inbox for instructions.');
-        setEmail(''); // Clear the form
-      } else {
-        setError(result.error || 'Failed to send password reset email');
+      try {
+        await resetPassword(email);
+        setMessage('Password reset instructions sent! Check your inbox for a recovery link.');
+        setEmail('');
+      } catch (authError) {
+        // Fallback to server endpoint if needed
+        const response = await fetch('/api/auth/forgot-password', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ email })
+        });
+        
+        const result = await response.json();
+        if (response.ok) {
+          setMessage(result.message || 'Password reset instructions sent! Check your inbox.');
+          setEmail('');
+        } else {
+          setError(result.error || authError.message || 'Failed to send password reset email');
+        }
       }
     } catch (error) {
       console.error('Password reset error:', error);

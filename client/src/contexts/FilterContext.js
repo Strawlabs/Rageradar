@@ -16,6 +16,9 @@ export const FilterProvider = ({ children }) => {
     platform: 'all',
     sentiment: 'all',
     emotion: 'all',
+    severity: 'all',
+    theme: 'all',
+    brand: 'all',
     keyword: '',
     geography: 'all',
     dateRange: {
@@ -56,7 +59,11 @@ export const FilterProvider = ({ children }) => {
       platform: 'all',
       sentiment: 'all',
       emotion: 'all',
+      severity: 'all',
+      theme: 'all',
+      brand: 'all',
       keyword: '',
+      geography: 'all',
       dateRange: {
         start: null,
         end: null
@@ -74,6 +81,10 @@ export const FilterProvider = ({ children }) => {
     if (filters.platform !== 'all') count++;
     if (filters.sentiment !== 'all') count++;
     if (filters.emotion !== 'all') count++;
+    if (filters.severity !== 'all') count++;
+    if (filters.theme !== 'all') count++;
+    if (filters.brand !== 'all') count++;
+    if (filters.geography !== 'all') count++;
     if (filters.keyword.trim()) count++;
     if (filters.dateRange.start && filters.dateRange.end) count++;
     return count;
@@ -88,6 +99,10 @@ export const FilterProvider = ({ children }) => {
   const getFilterSummary = () => {
     const parts = [];
     
+    if (filters.brand !== 'all') {
+      parts.push(`Brand: ${filters.brand}`);
+    }
+
     if (filters.platform !== 'all') {
       parts.push(`Platform: ${filters.platform}`);
     }
@@ -98,6 +113,14 @@ export const FilterProvider = ({ children }) => {
     
     if (filters.emotion !== 'all') {
       parts.push(`Emotion: ${filters.emotion}`);
+    }
+
+    if (filters.severity !== 'all') {
+      parts.push(`Severity: ${filters.severity}`);
+    }
+
+    if (filters.theme !== 'all') {
+      parts.push(`Theme: #${filters.theme}`);
     }
     
     if (filters.keyword.trim()) {

@@ -6,6 +6,8 @@ import Loading from './components/Loading';
 import NotFound from './components/NotFound';
 import Auth from './components/Auth';
 import Signup from './components/Signup';
+import ForgotPassword from './components/ForgotPassword';
+import ResetPasswordForm from './components/ResetPasswordForm';
 import PrivateRoute from './components/PrivateRoute';
 
 // Context providers
@@ -119,6 +121,9 @@ function App() {
                 <Route path="/auth" element={<Auth />} />
                 <Route path="/login" element={<Auth />} />
                 <Route path="/signup" element={<Signup />} />
+                <Route path="/forgot-password" element={<ForgotPassword />} />
+                <Route path="/password-reset" element={<ForgotPassword />} />
+                <Route path="/reset-password" element={<ResetPasswordForm />} />
                 
                 {/* Legal Pages */}
                 <Route path="/privacy" element={<PrivacyPolicy />} />
@@ -134,28 +139,28 @@ function App() {
                 
                 {/* Admin Routes */}
                 <Route path="/admin/blog" element={
-                  <PrivateRoute>
+                  <PrivateRoute requiredRoles={['admin', 'super_admin']}>
                     <EnhancedLayout>
                       <BlogManagement />
                     </EnhancedLayout>
                   </PrivateRoute>
                 } />
                 <Route path="/admin/users" element={
-                  <PrivateRoute>
+                  <PrivateRoute requiredRoles={['admin', 'super_admin']}>
                     <EnhancedLayout>
                       <UserManagement />
                     </EnhancedLayout>
                   </PrivateRoute>
                 } />
                 <Route path="/admin/rbac" element={
-                  <PrivateRoute>
+                  <PrivateRoute requiredRoles={['admin', 'super_admin']}>
                     <EnhancedLayout>
                       <RBACSettings />
                     </EnhancedLayout>
                   </PrivateRoute>
                 } />
                 <Route path="/admin/test" element={
-                  <PrivateRoute>
+                  <PrivateRoute requiredRoles={['admin', 'super_admin']}>
                     <EnhancedLayout>
                       <AdminTest />
                     </EnhancedLayout>

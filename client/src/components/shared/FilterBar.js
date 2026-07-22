@@ -1,18 +1,23 @@
 import React, { useState } from 'react';
 import { useFilters } from '../../contexts/FilterContext';
-import { Filter, X, Search, Calendar, BarChart3, MessageSquare, Heart, Clock } from 'lucide-react';
+import { Filter, X, Search, Calendar, BarChart3, MessageSquare, Heart, Clock, AlertTriangle, Tag, Target } from 'lucide-react';
 
 const FilterBar = ({ 
   showPlatformFilter = true,
   showSentimentFilter = true,
+  showSeverityFilter = true,
   showEmotionFilter = true,
+  showThemeFilter = true,
+  showBrandFilter = false,
   showKeywordFilter = true,
   showTimeRangeFilter = true,
   showGeographyFilter = false,
   showSortOptions = true,
   className = "",
   compact = false,
-  availablePlatforms = null // New prop for dynamic platforms
+  availablePlatforms = null,
+  availableThemes = null,
+  availableBrands = null
 }) => {
   const { 
     filters, 
@@ -383,12 +388,49 @@ const FilterBar = ({
     { value: 'influence', label: 'Influence' }
   ];
 
+  const severityOptions = [
+    { value: 'all', label: 'All Severities' },
+    { value: 'critical', label: 'Critical (80+)', color: 'text-red-700 dark:text-red-400' },
+    { value: 'high', label: 'High (60-79)', color: 'text-red-500' },
+    { value: 'moderate', label: 'Moderate (40-59)', color: 'text-orange-500' },
+    { value: 'low', label: 'Low (<40)', color: 'text-green-600' }
+  ];
+
+  const getDynamicThemeOptions = () => {
+    const options = [{ value: 'all', label: 'All Themes' }];
+    const themes = availableThemes || ['Product Quality', 'Customer Service', 'Pricing', 'App Bugs', 'Shipping', 'Billing'];
+    themes.forEach(theme => {
+      const themeVal = typeof theme === 'string' ? theme : (theme.theme || theme.name || theme.label || '');
+      if (themeVal) {
+        options.push({ value: themeVal.toLowerCase(), label: `#${themeVal}` });
+      }
+    });
+    return options;
+  };
+  const themeOptions = getDynamicThemeOptions();
+
+  const getDynamicBrandOptions = () => {
+    const options = [{ value: 'all', label: 'All Brands' }];
+    if (availableBrands && Array.isArray(availableBrands)) {
+      availableBrands.forEach(b => {
+        const name = typeof b === 'string' ? b : (b.brandName || b.name || '');
+        if (name) {
+          options.push({ value: name, label: name });
+        }
+      });
+    }
+    return options;
+  };
+  const brandOptions = getDynamicBrandOptions();
+
   const activeFilterCount = getActiveFilterCount();
 
   // Get count of advanced filters only
   const getAdvancedFilterCount = () => {
     let count = 0;
     if (filters.emotion !== 'all') count++;
+    if (filters.theme !== 'all') count++;
+    if (filters.brand !== 'all') count++;
     if (filters.keyword.trim()) count++;
     return count;
   };
@@ -505,6 +547,31 @@ const FilterBar = ({
           </div>
         )}
 
+        {/* Severity Filter */}
+        {showSeverityFilter && (
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-[120px]">
+              <AlertTriangle className="w-4 h-4 text-red-500" />
+              <span className="font-medium">Severity:</span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {severityOptions.map((sev) => (
+                <button
+                  key={sev.value}
+                  onClick={() => updateFilter('severity', sev.value)}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 border flex items-center gap-1.5 ${
+                    filters.severity === sev.value
+                      ? 'bg-orange-500 text-white border-orange-500 shadow-sm'
+                      : `text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 border-slate-300 dark:border-slate-600 ${sev.color || ''}`
+                  }`}
+                >
+                  <span>{sev.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Geography Filter */}
         {showGeographyFilter && (
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
@@ -538,7 +605,7 @@ const FilterBar = ({
       </div>
 
       {/* Advanced Filters - Expandable Section */}
-      {(showEmotionFilter || showKeywordFilter || showSortOptions) && (
+      {(showEmotionFilter || showThemeFilter || showBrandFilter || showKeywordFilter || showSortOptions) && (
         <div className="mt-6">
           {/* Advanced Filters Toggle */}
           <div className="flex items-center justify-between mb-4">
@@ -576,6 +643,56 @@ const FilterBar = ({
           {/* Advanced Filter Controls */}
           {isAdvancedExpanded && (
             <div className="space-y-6 pl-6 border-l-2 border-orange-200 dark:border-orange-800">
+              {/* Brand Filter */}
+              {showBrandFilter && (
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-[120px]">
+                    <Target className="w-4 h-4 text-purple-500" />
+                    <span className="font-medium">Brand:</span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {brandOptions.map((b) => (
+                      <button
+                        key={b.value}
+                        onClick={() => updateFilter('brand', b.value)}
+                        className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 border flex items-center gap-1.5 ${
+                          filters.brand === b.value
+                            ? 'bg-orange-500 text-white border-orange-500 shadow-sm'
+                            : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 border-slate-300 dark:border-slate-600'
+                        }`}
+                      >
+                        <span>{b.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Theme Filter */}
+              {showThemeFilter && (
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-[120px]">
+                    <Tag className="w-4 h-4 text-indigo-500" />
+                    <span className="font-medium">Theme:</span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {themeOptions.map((thm) => (
+                      <button
+                        key={thm.value}
+                        onClick={() => updateFilter('theme', thm.value)}
+                        className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 border flex items-center gap-1.5 ${
+                          filters.theme === thm.value
+                            ? 'bg-orange-500 text-white border-orange-500 shadow-sm'
+                            : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 border-slate-300 dark:border-slate-600'
+                        }`}
+                      >
+                        <span>{thm.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Emotion Filter */}
               {showEmotionFilter && (
                 <div className="flex flex-col sm:flex-row sm:items-center gap-3">

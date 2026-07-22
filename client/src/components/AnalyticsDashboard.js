@@ -176,6 +176,15 @@ const AnalyticsDashboard = () => {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-900 p-6">
         <div className="max-w-7xl mx-auto">
+          {/* Header */}
+          <div className="mb-8">
+            <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
+              Cooper Design Analytics
+            </h1>
+            <p className="text-slate-600 dark:text-slate-400 mt-2">
+              Monitor user behavior and design principle adherence
+            </p>
+          </div>
           <LoadingState
             variant="page"
             message="Loading Cooper Design Analytics..."
@@ -488,6 +497,7 @@ const AnalyticsDashboard = () => {
                   <p className="text-xs text-slate-500">92% success rate</p>
                 </div>
               </div>
+            </div>
           </CardContent>
         </Card>
       </div>

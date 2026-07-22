@@ -282,14 +282,27 @@ const validateBrandAnalysis = [
 class AccessControl {
   constructor() {
     this.roles = {
-      user: {
-        permissions: ['read:own_data', 'create:analysis', 'update:own_profile']
-      },
-      admin: {
+      super_admin: {
         permissions: ['*'] // All permissions
       },
-      support: {
-        permissions: ['read:user_data', 'read:audit_logs']
+      admin: {
+        permissions: [
+          'read:own_data', 'create:analysis', 'update:own_profile', 'read:own_analyses',
+          'read:all_users', 'update:user_role', 'update:user_plan',
+          'read:audit_logs', 'manage:blog',
+          'export:csv', 'export:pdf',
+          'api:access'
+        ]
+      },
+      enterprise_user: {
+        permissions: [
+          'read:own_data', 'create:analysis', 'update:own_profile', 'read:own_analyses',
+          'api:access', 'export:all_formats', 'create:team',
+          'export:csv', 'export:pdf', 'export:json', 'export:xlsx'
+        ]
+      },
+      user: {
+        permissions: ['read:own_data', 'create:analysis', 'update:own_profile', 'read:own_analyses']
       }
     };
   }
@@ -313,9 +326,34 @@ class AccessControl {
           endpoint: req.originalUrl
         });
         
-        return res.status(403).json({ error: 'Insufficient permissions' });
+        return res.status(403).json({
+          error: 'Insufficient permissions',
+          code: 'PERMISSION_DENIED'
+        });
       }
       
+      next();
+    };
+  }
+
+  /**
+   * Convenience: require one of the specified roles (delegates to roleGuard for full logic).
+   */
+  requireRole(...allowedRoles) {
+    return (req, res, next) => {
+      const userRole = req.userPlan?.role || 'user';
+      if (!allowedRoles.includes(userRole)) {
+        logSecurityEvent('ACCESS_DENIED', req.user?.uid, {
+          requiredRoles: allowedRoles,
+          userRole,
+          ip: req.clientIP,
+          endpoint: req.originalUrl
+        });
+        return res.status(403).json({
+          error: 'Insufficient permissions',
+          code: 'ROLE_ACCESS_DENIED'
+        });
+      }
       next();
     };
   }

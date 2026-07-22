@@ -828,6 +828,12 @@ a.active,
   }
 }
 
+@keyframes ticker {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+
 /* Scrollbar Styling */
 ::-webkit-scrollbar {
   width: 6px;

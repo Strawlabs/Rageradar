@@ -305,12 +305,32 @@ class ResearchOrchestrator {
                 emotions: s.emotions
             }));
             themes = await this.themeExtractor.extractThemes(themeMentions, {
-                minRageIndex: 50,
-                topN: 5
+                minRageIndex: 60,
+                topN: 10
             });
+
+            // Back-propagate theme tags onto each enriched signal so MentionsExplorer
+            // can show per-mention theme pills without a separate API call
+            if (themes.length > 0) {
+                // Build a temporary map: content → themes (to avoid re-looping enrichedSignals)
+                const contentThemeMap = new Map();
+                for (const signal of enrichedSignals) {
+                    const text = (signal.content || '').toLowerCase();
+                    const matched = [];
+                    for (const theme of themes) {
+                        const themeTerms = [theme.theme, ...(theme.keywords || [])];
+                        if (themeTerms.some(t => t && text.includes(t.toLowerCase()))) {
+                            matched.push(theme.theme);
+                        }
+                    }
+                    signal.themes = [...new Set(matched)];
+                }
+                logger.info(`ResearchOrchestrator: Theme tags back-propagated onto ${enrichedSignals.length} signals`);
+            }
         } catch (err) {
             logger.error('ResearchOrchestrator: Theme extraction failed', { error: err.message });
         }
+
 
         // Step 9: AI Insights Engine (LLM executive summary, recommendations card, and insights list)
         logger.info(`ResearchOrchestrator: Generating AI insights, summary, and action center...`);
@@ -401,7 +421,9 @@ class ResearchOrchestrator {
             searchResults: enrichedSignals.map(s => ({
                 id: s.id,
                 text: s.content,
+                originalContent: s.originalContent || s.content,
                 title: s.title || '',
+                source: s.source || s.platform || 'web',
                 url: s.url,
                 platform: s.platform,
                 timestamp: s.publishedAt,
@@ -417,6 +439,20 @@ class ResearchOrchestrator {
                 isSarcastic: s.isSarcastic || false,
                 isAmbiguous: s.isAmbiguous || false,
                 isShortText: s.isShortText || false,
+                rageIndex: s.rageIndex || 0,
+                themes: s.themes || [],
+                entities: s.entities || [],
+                extractedEntities: s.extractedEntities || {},
+                tags: s.tags || [],
+                metadata: s.metadata || s.platformMeta || {},
+                isPartialContent: s.isPartialContent || false,
+                partialReason: s.partialReason || null,
+                isDuplicate: s.isDuplicate || false,
+                isCrossPosted: s.isCrossPosted || false,
+                duplicateCount: s.duplicateCount || 1,
+                duplicateSources: s.duplicateSources || [],
+                qualityScore: s.qualityScore || 0,
+                relevanceScore: s.relevanceScore || 0,
                 engagement: s.engagement || s.platformMeta || { upvotes: 0, downvotes: 0, comments: 0, ratio: null, rating: null }
             })),
             analysisDate: new Date().toISOString(),

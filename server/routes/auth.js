@@ -131,7 +131,102 @@ router.post('/resend-welcome', authenticateUser, async (req, res) => {
 });
 
 /**
- * Confirm password reset with token
+ * POST /api/auth/forgot-password
+ * Initiate native Supabase password reset flow.
+ * Sends a magic link to the user's email.
+ */
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    const redirectTo = `${process.env.CLIENT_URL || 'http://localhost:3000'}/reset-password`;
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo
+    });
+
+    if (error) {
+      console.error('Supabase password reset error:', error);
+      // Don't reveal whether the email exists
+      return res.json({
+        message: 'If an account with that email exists, a password reset link has been sent.'
+      });
+    }
+
+    // Audit log (fire-and-forget)
+    const { data: userRow } = await supabase
+      .from('users')
+      .select('id')
+      .eq('email', email)
+      .single();
+
+    if (userRow) {
+      supabase.from('audit_logs').insert({
+        action: 'password_reset_requested',
+        user_id: userRow.id,
+        details: { email },
+        compliance: 'auth'
+      }).then(() => {}).catch(() => {});
+    }
+
+    res.json({
+      message: 'If an account with that email exists, a password reset link has been sent.'
+    });
+  } catch (error) {
+    console.error('Error initiating password reset:', error);
+    res.status(500).json({ error: 'Failed to process password reset request' });
+  }
+});
+
+/**
+ * POST /api/auth/update-password
+ * Update password for an authenticated user.
+ */
+router.post('/update-password', authenticateUser, async (req, res) => {
+  try {
+    const { newPassword } = req.body;
+
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    // Update via Supabase Auth admin (server-side with service role key)
+    const { error } = await supabase.auth.admin.updateUserById(req.user.uid, {
+      password: newPassword
+    });
+
+    if (error) {
+      console.error('Password update error:', error);
+      return res.status(500).json({ error: 'Failed to update password' });
+    }
+
+    // Update last_password_change timestamp
+    await supabase
+      .from('users')
+      .update({ last_password_change: new Date().toISOString() })
+      .eq('id', req.user.uid);
+
+    // Audit log
+    await supabase.from('audit_logs').insert({
+      action: 'password_changed',
+      user_id: req.user.uid,
+      details: { method: 'authenticated_change' },
+      compliance: 'auth'
+    });
+
+    res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    console.error('Error updating password:', error);
+    res.status(500).json({ error: 'Failed to update password' });
+  }
+});
+
+/**
+ * Confirm password reset with token (legacy flow — kept for backward compatibility)
  */
 router.post('/reset-password-confirm', async (req, res) => {
   try {
@@ -194,6 +289,12 @@ router.post('/reset-password-confirm', async (req, res) => {
           used_at: new Date().toISOString()
         })
         .eq('id', resetData.id);
+
+      // Update last_password_change
+      await supabase
+        .from('users')
+        .update({ last_password_change: new Date().toISOString() })
+        .eq('id', userId);
       
       // Send confirmation email (optional)
       const result = await notificationManager.sendSystemNotification(
@@ -220,6 +321,47 @@ router.post('/reset-password-confirm', async (req, res) => {
   } catch (error) {
     console.error('Error confirming password reset:', error);
     res.status(500).json({ error: 'Failed to reset password' });
+  }
+});
+
+/**
+ * GET /api/auth/session
+ * Returns current session info including role, plan, and expiry.
+ */
+router.get('/session', authenticateUser, async (req, res) => {
+  try {
+    const userId = req.user.uid;
+
+    const { data: userData, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (error || !userData) {
+      return res.status(404).json({ error: 'User profile not found' });
+    }
+
+    res.json({
+      userId,
+      email: userData.email,
+      role: userData.role,
+      plan: userData.plan,
+      firstName: userData.first_name,
+      lastName: userData.last_name,
+      companyName: userData.company_name,
+      subscriptionStatus: userData.subscription_status,
+      trialEndsAt: userData.trial_ends_at,
+      isTrialExpired: userData.plan === 'trial' && userData.trial_ends_at
+        ? new Date() > new Date(userData.trial_ends_at)
+        : false,
+      sessionExpiresAt: userData.session_expires_at,
+      lastLogin: userData.last_login,
+      lastPasswordChange: userData.last_password_change
+    });
+  } catch (error) {
+    console.error('Error getting session:', error);
+    res.status(500).json({ error: 'Failed to get session info' });
   }
 });
 

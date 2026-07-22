@@ -247,19 +247,26 @@ class CooperAnalytics {
 
     this.events.push(event);
 
-    // Send to analytics endpoint
     if (typeof fetch !== 'undefined') {
-      fetch('/api/analytics/events', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(event)
-      }).catch(error => {
+      try {
+        const req = fetch('/api/analytics/events', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(event)
+        });
+        if (req && typeof req.catch === 'function') {
+          req.catch(error => {
+            console.warn('Analytics event failed to send:', error);
+            // Store locally for retry
+            this.storeEventLocally(event);
+          });
+        }
+      } catch (error) {
         console.warn('Analytics event failed to send:', error);
-        // Store locally for retry
         this.storeEventLocally(event);
-      });
+      }
     }
   }
 

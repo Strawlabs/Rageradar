@@ -3,6 +3,7 @@
  */
 
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import '@testing-library/jest-dom';
 import { renderHook, act } from '@testing-library/react';
 import cooperAnalytics from '../../utils/cooperAnalytics';
 import abTesting from '../../utils/abTesting';
@@ -311,7 +312,8 @@ describe('Cooper Analytics System', () => {
 
       expect(screen.getByText('Cooper Design Analytics')).toBeInTheDocument();
       // Should show loading animation
-      expect(document.querySelector('.animate-pulse')).toBeInTheDocument();
+      const loader = document.querySelector('.animate-spin') || document.querySelector('.animate-pulse');
+      expect(loader).toBeInTheDocument();
     });
 
     test('should handle API errors gracefully', async () => {

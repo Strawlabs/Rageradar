@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
 const ResetPasswordForm = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { updatePassword, currentUser } = useAuth();
   
   const [formData, setFormData] = useState({
     newPassword: '',
@@ -17,18 +19,23 @@ const ResetPasswordForm = () => {
   const email = searchParams.get('email');
 
   useEffect(() => {
-    if (!token || !email) {
-      setError('Invalid reset link. Please request a new password reset.');
+    // Check if we have neither legacy tokens nor an active session/hash from Supabase recovery
+    const hash = window.location.hash || '';
+    const hasRecoveryHash = hash.includes('access_token=') && hash.includes('type=recovery');
+    
+    if (!token && !email && !hasRecoveryHash && !currentUser) {
+      // Allow a brief moment for Supabase auth state to settle if recovering from email link
+      const timer = setTimeout(() => {
+        if (!currentUser) {
+          setError('Invalid or expired reset link. Please request a new password reset.');
+        }
+      }, 1500);
+      return () => clearTimeout(timer);
     }
-  }, [token, email]);
+  }, [token, email, currentUser]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (!token || !email) {
-      setError('Invalid reset link. Please request a new password reset.');
-      return;
-    }
 
     if (formData.newPassword.length < 6) {
       setError('Password must be at least 6 characters');
@@ -44,33 +51,41 @@ const ResetPasswordForm = () => {
       setError('');
       setLoading(true);
       
-      // Verify token and reset password
-      const response = await fetch('/api/auth/reset-password-confirm', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          token,
-          email,
-          newPassword: formData.newPassword
-        })
-      });
-      
-      const result = await response.json();
-      
-      if (response.ok) {
+      if (token && email) {
+        // Legacy recovery flow
+        const response = await fetch('/api/auth/reset-password-confirm', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            token,
+            email,
+            newPassword: formData.newPassword
+          })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+          setSuccess(true);
+          setTimeout(() => {
+            navigate('/login');
+          }, 3000);
+        } else {
+          setError(result.error || 'Failed to reset password');
+        }
+      } else {
+        // Native Supabase recovery flow (session is established via recovery link)
+        await updatePassword(formData.newPassword);
         setSuccess(true);
-        // Redirect to login after 3 seconds
         setTimeout(() => {
           navigate('/login');
         }, 3000);
-      } else {
-        setError(result.error || 'Failed to reset password');
       }
-    } catch (error) {
-      console.error('Password reset error:', error);
-      setError('Network error. Please try again.');
+    } catch (err) {
+      console.error('Password reset error:', err);
+      setError(err.message || 'Network error or expired token. Please try requesting a new reset link.');
     } finally {
       setLoading(false);
     }

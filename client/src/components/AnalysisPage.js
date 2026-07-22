@@ -6,14 +6,14 @@ import { capitalizeBrandName } from '../utils/brandUtils';
 import PageHeader from './shared/PageHeader';
 import ColorfulWidget from './shared/ColorfulWidget';
 import BrandLogo from './shared/BrandLogo';
-import { Search, TrendingUp, Target, Zap, Trash2 } from 'lucide-react';
+import { Search, TrendingUp, Target, Zap, Trash2, BarChart3, MessageSquare, Activity } from 'lucide-react';
 import AnalyzeBrandButton from './shared/AnalyzeBrandButton';
 import axios from 'axios';
 
 const AnalysisPage = () => {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
-  const { addAnalyzedBrand, analyzedBrands, removeBrand } = useBrand();
+  const { addAnalyzedBrand, analyzedBrands, removeBrand, selectBrand } = useBrand();
 
   // State declarations
   const [brandName, setBrandName] = useState('');
@@ -198,22 +198,52 @@ const AnalysisPage = () => {
                   </div>
                 </div>
 
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => navigate('/dashboard', { state: { selectedBrand: brand, fromHistory: true } })}
-                    className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground py-2 px-4 rounded-lg font-medium transition-colors duration-200 flex items-center justify-center gap-2"
-                  >
-                    View Details
-                  </button>
-
-                  {/* Delete Button */}
-                  <button
-                    onClick={() => handleDeleteBrand(brand.brandName)}
-                    className="bg-red-500 hover:bg-red-600 text-white p-2 rounded-lg transition-colors duration-200 flex items-center justify-center"
-                    title="Delete brand analysis"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      onClick={() => {
+                        selectBrand(brand);
+                        navigate('/dashboard', { state: { selectedBrand: brand, fromHistory: true } });
+                      }}
+                      className="bg-primary/10 hover:bg-primary/20 text-primary py-2 px-3 rounded-lg font-medium text-xs transition-colors duration-200 flex items-center justify-center gap-1.5"
+                      title="Open Dashboard"
+                    >
+                      <BarChart3 className="w-3.5 h-3.5" />
+                      Dashboard
+                    </button>
+                    <button
+                      onClick={() => {
+                        selectBrand(brand);
+                        navigate('/mentions');
+                      }}
+                      className="bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 py-2 px-3 rounded-lg font-medium text-xs transition-colors duration-200 flex items-center justify-center gap-1.5"
+                      title="Investigate Mentions"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      Mentions
+                    </button>
+                    <button
+                      onClick={() => {
+                        selectBrand(brand);
+                        navigate('/realtime');
+                      }}
+                      className="bg-orange-500/10 hover:bg-orange-500/20 text-orange-600 dark:text-orange-400 py-2 px-3 rounded-lg font-medium text-xs transition-colors duration-200 flex items-center justify-center gap-1.5"
+                      title="Live Intelligence Feed"
+                    >
+                      <Activity className="w-3.5 h-3.5" />
+                      Live Feed
+                    </button>
+                  </div>
+                  <div className="flex justify-end pt-1">
+                    <button
+                      onClick={() => handleDeleteBrand(brand.brandName)}
+                      className="text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 p-1.5 rounded-lg transition-colors duration-200 flex items-center gap-1 text-xs font-medium"
+                      title="Delete brand analysis"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Remove
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}

@@ -63,20 +63,37 @@ const Signup = () => {
       
       // More specific error messages
       let errorMessage = 'Failed to create account';
-      if (error.code === 'auth/email-already-in-use') {
+      if (error.code === 'auth/email-already-in-use' || error.code === 'user_already_exists' || (error.message && error.message.includes('User already registered'))) {
         errorMessage = 'An account with this email already exists';
-      } else if (error.code === 'auth/weak-password') {
-        errorMessage = 'Password is too weak';
-      } else if (error.code === 'auth/invalid-email') {
+      } else if (error.code === 'auth/weak-password' || (error.message && error.message.includes('Password should be at least'))) {
+        errorMessage = 'Password is too weak. Please use at least 6 characters.';
+      } else if (error.code === 'auth/invalid-email' || (error.message && error.message.includes('Unable to validate email address'))) {
         errorMessage = 'Invalid email address';
       } else if (error.code === 'auth/network-request-failed') {
         errorMessage = 'Network error. Please check your connection';
+      } else if (error.message) {
+        errorMessage = error.message;
       }
       
       setError(errorMessage);
       setLoading(false);
     }
   }
+
+  const getPasswordStrength = (pass) => {
+    if (!pass) return { label: '', color: 'bg-gray-200', width: 'w-0' };
+    let score = 0;
+    if (pass.length >= 6) score += 1;
+    if (pass.length >= 8) score += 1;
+    if (/[A-Z]/.test(pass) && /[0-9]/.test(pass)) score += 1;
+    if (/[^A-Za-z0-9]/.test(pass)) score += 1;
+
+    if (score <= 1) return { label: 'Weak', color: 'bg-red-500', width: 'w-1/3' };
+    if (score === 2 || score === 3) return { label: 'Good', color: 'bg-yellow-500', width: 'w-2/3' };
+    return { label: 'Strong', color: 'bg-green-500', width: 'w-full' };
+  };
+
+  const strength = getPasswordStrength(formData.password);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-blue-50/30 flex items-center justify-center p-4">
@@ -210,6 +227,30 @@ const Signup = () => {
                   />
                 </div>
               </div>
+
+              {formData.password && (
+                <div className="pt-1">
+                  <div className="flex justify-between items-center text-xs text-gray-600 mb-1">
+                    <span>Password Strength:</span>
+                    <span className="font-semibold">{strength.label}</span>
+                  </div>
+                  <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden">
+                    <div className={`${strength.color} ${strength.width} h-full transition-all duration-300`}></div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-start gap-2 pt-2">
+                <input
+                  type="checkbox"
+                  id="terms"
+                  required
+                  className="mt-1 w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                />
+                <label htmlFor="terms" className="text-xs text-gray-600">
+                  I agree to the <Link to="/terms" className="text-orange-600 hover:text-orange-700 font-medium">Terms of Service</Link> and <Link to="/privacy" className="text-orange-600 hover:text-orange-700 font-medium">Privacy Policy</Link>
+                </label>
+              </div>
             </div>
 
             <button
@@ -233,18 +274,12 @@ const Signup = () => {
             </button>
 
             <div className="text-center">
-              <div className="flex items-center justify-center gap-2 text-sm text-green-600 mb-3">
+              <div className="flex items-center justify-center gap-2 text-sm text-green-600">
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
                 <span>3-day free trial • No credit card required</span>
               </div>
-              <p className="text-xs text-gray-500">
-                By signing up, you agree to our{' '}
-                <Link to="/terms" className="text-orange-600 hover:text-orange-700">Terms</Link>
-                {' '}and{' '}
-                <Link to="/privacy" className="text-orange-600 hover:text-orange-700">Privacy Policy</Link>
-              </p>
             </div>
           </form>
 

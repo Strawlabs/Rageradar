@@ -9,7 +9,8 @@ CREATE TABLE IF NOT EXISTS public.users (
     id UUID PRIMARY KEY, -- references auth.users.id
     email TEXT UNIQUE NOT NULL,
     plan TEXT DEFAULT 'trial' NOT NULL,
-    role TEXT DEFAULT 'user' NOT NULL,
+    role TEXT DEFAULT 'user' NOT NULL
+        CHECK (role IN ('super_admin', 'admin', 'user', 'enterprise_user')),
     first_name TEXT DEFAULT '',
     last_name TEXT DEFAULT '',
     company_name TEXT DEFAULT '',
@@ -27,6 +28,8 @@ CREATE TABLE IF NOT EXISTS public.users (
     trial_ends_at TIMESTAMP WITH TIME ZONE DEFAULT (now() + interval '3 days') NOT NULL,
     signup_date TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
     last_login TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    last_password_change TIMESTAMP WITH TIME ZONE,
+    session_expires_at TIMESTAMP WITH TIME ZONE,
     welcome_email_sent BOOLEAN DEFAULT false NOT NULL,
     welcome_email_sent_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
@@ -111,7 +114,7 @@ CREATE TABLE IF NOT EXISTS public.billing_events (
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
--- Password Resets Table
+-- Password Resets Table (kept for audit purposes; primary reset flow uses Supabase native)
 CREATE TABLE IF NOT EXISTS public.password_resets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email TEXT NOT NULL,
@@ -143,41 +146,88 @@ ALTER TABLE public.billing_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.password_resets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 
--- Set up RLS Policies
+-- ============================================
+-- RLS Policies
+-- ============================================
 
--- Users Policies
+-- Users Policies: own profile access
 CREATE POLICY "Allow authenticated users to read their own profile" ON public.users
-    FOR SELECT TO authenticated USING (auth.uid() = id);
+    FOR SELECT TO authenticated USING ((select auth.uid()) = id);
 
 CREATE POLICY "Allow users to update their own profile" ON public.users
-    FOR UPDATE TO authenticated USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
+    FOR UPDATE TO authenticated
+    USING ((select auth.uid()) = id)
+    WITH CHECK ((select auth.uid()) = id);
 
 CREATE POLICY "Allow authenticated users to create their own profile" ON public.users
-    FOR INSERT TO authenticated WITH CHECK (auth.uid() = id);
+    FOR INSERT TO authenticated WITH CHECK ((select auth.uid()) = id);
+
+-- Users Policies: admin access (super_admin and admin can read all users)
+CREATE POLICY "Allow admins to read all users" ON public.users
+    FOR SELECT TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.users u
+            WHERE u.id = (select auth.uid()) AND u.role IN ('super_admin', 'admin')
+        )
+    );
+
+-- Users Policies: super_admin can update any user
+CREATE POLICY "Allow super_admin to update any user" ON public.users
+    FOR UPDATE TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.users u
+            WHERE u.id = (select auth.uid()) AND u.role = 'super_admin'
+        )
+    )
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.users u
+            WHERE u.id = (select auth.uid()) AND u.role = 'super_admin'
+        )
+    );
+
+-- Users Policies: admin can update user role/plan (but not promote to super_admin)
+CREATE POLICY "Allow admin to update user details" ON public.users
+    FOR UPDATE TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.users u
+            WHERE u.id = (select auth.uid()) AND u.role = 'admin'
+        )
+    )
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.users u
+            WHERE u.id = (select auth.uid()) AND u.role = 'admin'
+        )
+        AND role != 'super_admin'  -- admins cannot promote users to super_admin
+    );
 
 -- Analyses Policies
 CREATE POLICY "Allow authenticated users to manage their own analyses" ON public.analyses
-    FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+    FOR ALL TO authenticated USING ((select auth.uid()) = user_id) WITH CHECK ((select auth.uid()) = user_id);
 
 -- Events Policies
 CREATE POLICY "Allow authenticated users to manage their own events" ON public.events
-    FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+    FOR ALL TO authenticated USING ((select auth.uid()) = user_id) WITH CHECK ((select auth.uid()) = user_id);
 
 -- GDPR Consent Policies
 CREATE POLICY "Allow authenticated users to manage their own GDPR consents" ON public.gdpr_consent
-    FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+    FOR ALL TO authenticated USING ((select auth.uid()) = user_id) WITH CHECK ((select auth.uid()) = user_id);
 
 -- Audit Logs Policies
 CREATE POLICY "Allow authenticated users to insert audit logs" ON public.audit_logs
     FOR INSERT TO authenticated WITH CHECK (true);
 
 CREATE POLICY "Allow users to read their own audit logs" ON public.audit_logs
-    FOR SELECT TO authenticated USING (user_id = auth.uid()::text);
+    FOR SELECT TO authenticated USING (user_id = (select auth.uid())::text);
 
 -- Billing Events Policies
 CREATE POLICY "Allow authenticated users to view/manage their billing events" ON public.billing_events
-    FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+    FOR ALL TO authenticated USING ((select auth.uid()) = user_id) WITH CHECK ((select auth.uid()) = user_id);
 
 -- Notifications Policies
 CREATE POLICY "Allow authenticated users to manage their own notifications" ON public.notifications
-    FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+    FOR ALL TO authenticated USING ((select auth.uid()) = user_id) WITH CHECK ((select auth.uid()) = user_id);
