@@ -87,6 +87,16 @@ class DuplicateDetector {
             const tokens = this.getTokens(signal.content);
             signal.tokenSet = tokens;
 
+            // Initialize tracking metadata for cross-posting and duplicate sources
+            signal.duplicateSources = signal.duplicateSources || [{
+                url: signal.url || '',
+                platform: signal.platform || 'web',
+                publishedAt: signal.publishedAt || new Date().toISOString(),
+                engagement: signal.engagement || signal.platformMeta || {}
+            }];
+            signal.duplicateCount = signal.duplicateCount || signal.duplicateSources.length;
+            signal.isCrossPosted = signal.isCrossPosted || false;
+
             let isDuplicate = false;
             let matchingSignal = null;
 
@@ -111,8 +121,31 @@ class DuplicateDetector {
             }
 
             if (isDuplicate && matchingSignal) {
-                logger.info(`DuplicateDetector: Found duplicate. Merging engagement stats.`);
+                logger.info(`DuplicateDetector: Found duplicate. Merging engagement stats and sources.`);
                 
+                // Ensure matchingSignal has tracking fields initialized
+                matchingSignal.duplicateSources = matchingSignal.duplicateSources || [{
+                    url: matchingSignal.url || '',
+                    platform: matchingSignal.platform || 'web',
+                    publishedAt: matchingSignal.publishedAt || new Date().toISOString(),
+                    engagement: matchingSignal.engagement || matchingSignal.platformMeta || {}
+                }];
+
+                // Record the incoming duplicate source
+                const newSource = {
+                    url: signal.url || '',
+                    platform: signal.platform || 'web',
+                    publishedAt: signal.publishedAt || new Date().toISOString(),
+                    engagement: signal.engagement || signal.platformMeta || {}
+                };
+                matchingSignal.duplicateSources.push(newSource);
+                matchingSignal.duplicateCount = matchingSignal.duplicateSources.length;
+
+                // Check if cross-posted across different platforms or domains/URLs
+                if (matchingSignal.duplicateSources.some(s => s.platform !== matchingSignal.platform || (s.url && matchingSignal.url && s.url !== matchingSignal.url))) {
+                    matchingSignal.isCrossPosted = true;
+                }
+
                 // Merge engagement statistics
                 const refMeta = matchingSignal.platformMeta || {};
                 const sigMeta = signal.platformMeta || {};
@@ -132,9 +165,19 @@ class DuplicateDetector {
                     matchingSignal.content = signal.content;
                     matchingSignal.title = signal.title;
                     matchingSignal.url = signal.url;
+                    if (signal.originalContent) {
+                        matchingSignal.originalContent = signal.originalContent;
+                    }
                 }
                 
                 matchingSignal.platformMeta = mergedMeta;
+                if (matchingSignal.engagement) {
+                    matchingSignal.engagement = { ...matchingSignal.engagement, ...mergedMeta };
+                }
+                if (matchingSignal.metadata) {
+                    matchingSignal.metadata.isCrossPosted = matchingSignal.isCrossPosted;
+                    matchingSignal.metadata.duplicateCount = matchingSignal.duplicateCount;
+                }
                 matchingSignal.isDuplicate = true;
             } else {
                 signal.isDuplicate = false;

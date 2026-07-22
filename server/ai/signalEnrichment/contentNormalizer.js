@@ -45,6 +45,9 @@ class ContentNormalizer {
             /advertisement/gi,
             /promoted/gi,
 
+            // Snippet indicators
+            /\b(read more|continue reading|full story)\.*$/gi,
+
             // Footer boilerplate
             /all rights reserved/gi,
             /copyright ©?\s*\d{4}/gi,
@@ -147,11 +150,37 @@ class ContentNormalizer {
      * @param {string} rawText 
      * @param {object} options 
      * @param {string} [options.platform] - 'reddit', 'youtube', etc.
-     * @returns {object} Normalized result: { content: string, qualityScore: number }
+     * @param {boolean} [options.isPartial] - Explicit flag indicating partial/snippet text
+     * @param {boolean} [options.isPartialContent] - Explicit flag indicating partial/snippet text
+     * @param {boolean} [options.isSnippet] - Explicit flag indicating snippet
+     * @param {boolean} [options.fullContentExtracted] - Whether full page content extraction succeeded
+     * @returns {object} Normalized result: { content: string, qualityScore: number, isPartialContent: boolean, partialReason: string | null }
      */
     normalize(rawText, options = {}) {
         if (!rawText || typeof rawText !== 'string') {
-            return { content: '', qualityScore: 0 };
+            return { content: '', qualityScore: 0, isPartialContent: false, partialReason: null };
+        }
+
+        const trimmedRaw = rawText.trim();
+        const endsWithEllipsis = trimmedRaw.endsWith('...') || trimmedRaw.endsWith('…');
+        const hasSnippetIndicator = /read more\.*|continue reading\.*|full story\.*$/i.test(trimmedRaw);
+        
+        const isPartialContent = Boolean(
+            options.isPartial ||
+            options.isPartialContent ||
+            options.isSnippet ||
+            (options.fullContentExtracted === false && (!options.platform || options.platform === 'web' || options.platform === 'google')) ||
+            endsWithEllipsis ||
+            hasSnippetIndicator
+        );
+
+        let partialReason = null;
+        if (options.isPartial || options.isPartialContent || options.isSnippet) {
+            partialReason = 'marked_partial';
+        } else if (options.fullContentExtracted === false && (!options.platform || options.platform === 'web' || options.platform === 'google')) {
+            partialReason = 'full_retrieval_incomplete';
+        } else if (endsWithEllipsis || hasSnippetIndicator) {
+            partialReason = 'snippet_truncation';
         }
 
         // 1. Strip HTML tags
@@ -179,18 +208,20 @@ class ContentNormalizer {
             .trim();
 
         // 6. Calculate content quality score (0-1)
-        const qualityScore = this.calculateQualityScore(cleaned, rawText);
+        const qualityScore = this.calculateQualityScore(cleaned, rawText, isPartialContent);
 
         return {
             content: cleaned,
-            qualityScore
+            qualityScore,
+            isPartialContent,
+            partialReason
         };
     }
 
     /**
      * Calculate a quality score (0-1) based on information density and readability
      */
-    calculateQualityScore(cleanedText, rawText) {
+    calculateQualityScore(cleanedText, rawText, isPartialContent = false) {
         if (!cleanedText) return 0;
 
         const cleanLen = cleanedText.length;
@@ -207,7 +238,7 @@ class ContentNormalizer {
         if (wordCount < 5) {
             score -= 0.3; // Very short text is low quality
         } else if (wordCount >= 5 && wordCount < 15) {
-            score += 0.1;
+            score += isPartialContent ? 0.25 : 0.1; // Snippets get boost so partial content doesn't block analysis
         } else if (wordCount >= 15 && wordCount < 100) {
             score += 0.3; // Optimal length for sentiment analysis
         } else {
