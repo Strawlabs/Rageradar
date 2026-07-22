@@ -44,6 +44,7 @@ import {
 } from 'lucide-react';
 
 import FilterBar from './shared/FilterBar';
+import ReportExport from './ReportExport';
 
 // Register Chart.js components
 ChartJS.register(
@@ -67,6 +68,7 @@ const ReportsOverview = () => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [showExportModal, setShowExportModal] = useState(false);
 
   // Generate time-based trend data
   const generateTimeBasedTrendData = (timeRange) => {
@@ -290,6 +292,14 @@ const ReportsOverview = () => {
           </svg>
         }
         iconColor="text-blue-600"
+        action={
+          <Button onClick={() => setShowExportModal(true)} className="bg-orange-500 hover:bg-orange-600 text-white font-medium flex items-center gap-2 px-4 py-2 rounded-lg shadow">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Export Report
+          </Button>
+        }
       />
 
       {/* Sample Data Banner */}
@@ -538,7 +548,16 @@ const ReportsOverview = () => {
         </CardContent>
       </Card>
 
-
+      {showExportModal && (
+        <ReportExport
+          analysisData={data}
+          brandName={currentBrand.brandName}
+          appliedFilters={filters}
+          timeRangeLabel={filters?.timeRange || 'Last 7 days'}
+          reportType="overview"
+          onClose={() => setShowExportModal(false)}
+        />
+      )}
     </div>
   );
 };

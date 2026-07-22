@@ -23,15 +23,15 @@ const loadPptxGenJS = async () => {
 };
 
 // Simple and reliable PowerPoint export utility
-export const generatePowerPointFile = async (brandName, analysisData, timeRangeLabel = 'Last 7 days') => {
+export const generatePowerPointFile = async (brandName, analysisData, timeRangeLabel = 'Last 7 days', reportType = 'overview', reportContextData = {}) => {
   try {
-    console.log('🚀 Starting PowerPoint export for:', brandName);
+    console.log('🚀 Starting PowerPoint export for:', brandName, 'Report Type:', reportType);
     
-    // Define slide data
-    const slides = [
+    // Define base slide data
+    let slides = [
       {
-        title: `${brandName} Sentiment Analysis`,
-        subtitle: 'Executive Summary Report',
+        title: `${brandName} ${reportType === 'competitive' ? 'Competitive Analysis' : reportType === 'events' ? 'Event Impact Analysis' : reportType === 'trends' ? 'Rage Trends Report' : reportType === 'sentiment' ? 'Sentiment Breakdown' : 'Sentiment Analysis'}`,
+        subtitle: `Executive Summary Report • ${timeRangeLabel}`,
         content: [
           `Analysis Period: ${timeRangeLabel}`,
           `Total Mentions: ${analysisData?.totalMentions || 50}`,
@@ -39,60 +39,110 @@ export const generatePowerPointFile = async (brandName, analysisData, timeRangeL
           `Confidence Score: ${analysisData?.confidenceScore || 85}%`,
           `Platforms Monitored: ${analysisData?.platformCount || 6}`
         ]
-      },
-      {
-        title: 'Key Metrics Overview',
-        content: [
-          `Positive Sentiment: ${analysisData?.positivePercentage || 65}%`,
-          `Negative Sentiment: ${analysisData?.negativePercentage || 10}%`,
-          `Neutral Sentiment: ${analysisData?.neutralPercentage || 25}%`,
-          `Rage Index: ${analysisData?.rageIndex || 28}`,
-          `Trend: ${analysisData?.mentionsChange > 0 ? 'Increasing' : 'Stable'} volume`
-        ]
-      },
-      {
-        title: 'Platform Performance',
-        content: [
-          'Reddit: 456 mentions (68% positive)',
-          'Twitter: 321 mentions (74% positive)',
-          'Product Hunt: 234 mentions (85% positive)',
-          'Trustpilot: 236 mentions (71% positive)',
-          'YouTube: 189 mentions (79% positive)',
-          'LinkedIn: 156 mentions (82% positive)'
-        ]
-      },
-      {
-        title: 'Customer Personas',
-        content: [
-          'Satisfied Customer (25%) - NPS: +85',
-          'Price-Conscious Buyer (20%) - NPS: -45',
-          'Tech-Savvy Critic (18%) - NPS: -65',
-          'First-Time User (15%) - NPS: +25',
-          'Loyal Advocate (12%) - NPS: +95',
-          'Frustrated User (10%) - NPS: -85'
-        ]
-      },
-      {
-        title: 'Strategic Recommendations',
-        content: [
-          'HIGH PRIORITY: Address pricing concerns → +15% sentiment',
-          'MEDIUM: Enhance customer service → +10% satisfaction',
-          'LOW: Leverage product quality → Stronger positioning',
-          'Focus on converting satisfied customers to advocates',
-          'Monitor sentiment improvements quarterly'
-        ]
-      },
-      {
-        title: 'Next Steps & Action Plan',
-        content: [
-          'Immediate (1-2 weeks): Review pricing strategy',
-          'Short-term (1-3 months): Service training program',
-          'Long-term (3-6 months): Monitor improvements',
-          'Schedule follow-up analysis in 30 days',
-          'Engage stakeholders on priority actions'
-        ]
       }
     ];
+
+    if (reportType === 'competitive' && reportContextData.competitors) {
+      const allBrands = [reportContextData.mainBrand || { name: brandName, sentimentScore: analysisData?.averageSentiment || 72, rageIndex: analysisData?.rageIndex || 28, totalMentions: analysisData?.totalMentions || 1000 }, ...Object.values(reportContextData.competitors)];
+      slides.push({
+        title: 'Competitive Metrics Comparison',
+        subtitle: 'Side-by-Side Brand Benchmark',
+        content: allBrands.map(b => `${b.name}: ${b.sentimentScore || 70}% Sentiment | ${b.rageIndex || 30}% Rage Index | ${b.totalMentions || 500} Mentions`)
+      });
+      slides.push({
+        title: 'Market Leaders & Challengers',
+        subtitle: 'Strategic Positioning Summary',
+        content: [
+          `Top Sentiment Brand: ${[...allBrands].sort((a,b)=>(b.sentimentScore||0)-(a.sentimentScore||0))[0]?.name || brandName}`,
+          `Highest Mention Volume: ${[...allBrands].sort((a,b)=>(b.totalMentions||0)-(a.totalMentions||0))[0]?.name || brandName}`,
+          `Lowest Rage Index: ${[...allBrands].sort((a,b)=>(a.rageIndex||100)-(b.rageIndex||100))[0]?.name || brandName}`,
+          'Recommendation: Capitalize on competitive sentiment advantages in high-engagement channels.'
+        ]
+      });
+    } else if (reportType === 'events' && reportContextData.events) {
+      slides.push({
+        title: 'Tracked Events & Milestones',
+        subtitle: 'Pre vs During vs Post Event Impact',
+        content: reportContextData.events.slice(0, 5).map(e => `${e.eventName} (${new Date(e.eventDate).toLocaleDateString()}): Rage Index ${e.analysis?.duringEventWindow?.rageIndex || 28}% (${e.analysis?.changes?.rageIndexChange >= 0 ? '+' : ''}${e.analysis?.changes?.rageIndexChange || 0} pts change)`)
+      });
+      slides.push({
+        title: 'Event Analysis Findings',
+        subtitle: 'Key Emotional Shifts',
+        content: [
+          'Pre-Event Baseline established across core monitoring platforms.',
+          'During-Event window tracks real-time sentiment velocity and rage spikes.',
+          'Post-Event recovery window evaluates long-term brand perception stabilization.',
+          'Recommendation: Adjust PR and messaging strategy based on top event discussion themes.'
+        ]
+      });
+    } else if (reportType === 'trends') {
+      slides.push({
+        title: 'Rage Trends & Volatility',
+        subtitle: `Trendline Analysis • ${timeRangeLabel}`,
+        content: [
+          `Current Rage Index: ${analysisData?.rageIndex || 28}%`,
+          `Trend Direction: ${analysisData?.mentionsChange > 0 ? 'Upward Volatility' : 'Stable Rolling Baseline'}`,
+          'Rolling Baselines: 7-day and 30-day moving averages maintained across hourly aggregates.',
+          'Spike Detection: Statistical alerting triggers when score exceeds rolling mean + 2 SD.',
+          'Recommendation: Monitor high-volatility platforms during peak mention windows.'
+        ]
+      });
+    } else {
+      slides.push(
+        {
+          title: 'Key Metrics Overview',
+          content: [
+            `Positive Sentiment: ${analysisData?.positivePercentage || 65}%`,
+            `Negative Sentiment: ${analysisData?.negativePercentage || 10}%`,
+            `Neutral Sentiment: ${analysisData?.neutralPercentage || 25}%`,
+            `Rage Index: ${analysisData?.rageIndex || 28}`,
+            `Trend: ${analysisData?.mentionsChange > 0 ? 'Increasing' : 'Stable'} volume`
+          ]
+        },
+        {
+          title: 'Platform Performance',
+          content: [
+            'Reddit: 456 mentions (68% positive)',
+            'Twitter: 321 mentions (74% positive)',
+            'Product Hunt: 234 mentions (85% positive)',
+            'Trustpilot: 236 mentions (71% positive)',
+            'YouTube: 189 mentions (79% positive)',
+            'LinkedIn: 156 mentions (82% positive)'
+          ]
+        },
+        {
+          title: 'Customer Personas',
+          content: [
+            'Satisfied Customer (25%) - NPS: +85',
+            'Price-Conscious Buyer (20%) - NPS: -45',
+            'Tech-Savvy Critic (18%) - NPS: -65',
+            'First-Time User (15%) - NPS: +25',
+            'Loyal Advocate (12%) - NPS: +95',
+            'Frustrated User (10%) - NPS: -85'
+          ]
+        },
+        {
+          title: 'Strategic Recommendations',
+          content: [
+            'HIGH PRIORITY: Address pricing concerns → +15% sentiment',
+            'MEDIUM: Enhance customer service → +10% satisfaction',
+            'LOW: Leverage product quality → Stronger positioning',
+            'Focus on converting satisfied customers to advocates',
+            'Monitor sentiment improvements quarterly'
+          ]
+        },
+        {
+          title: 'Next Steps & Action Plan',
+          content: [
+            'Immediate (1-2 weeks): Review pricing strategy',
+            'Short-term (1-3 months): Service training program',
+            'Long-term (3-6 months): Monitor improvements',
+            'Schedule follow-up analysis in 30 days',
+            'Engage stakeholders on priority actions'
+          ]
+        }
+      );
+    }
 
     // Use PptxGenJS - the professional library for PowerPoint generation
     try {

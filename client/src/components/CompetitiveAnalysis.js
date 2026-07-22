@@ -63,6 +63,8 @@ const COMPETITOR_COLORS = [
   '#06B6D4', // Cyan
 ];
 
+import ReportExport from './ReportExport';
+
 const CompetitiveAnalysis = () => {
   const [searchParams] = useSearchParams();
   const { currentUser } = useAuth();
@@ -78,6 +80,7 @@ const CompetitiveAnalysis = () => {
   const [newCompetitorName, setNewCompetitorName] = useState('');
   const [isAddingCompetitor, setIsAddingCompetitor] = useState(false);
   const [isUpdatingData, setIsUpdatingData] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const competitorsLoadedRef = useRef(false);
 
   useEffect(() => {
@@ -386,6 +389,14 @@ const CompetitiveAnalysis = () => {
             </svg>
           }
           iconBg="from-orange-500 to-red-500"
+          action={
+            <button onClick={() => setShowExportModal(true)} className="bg-orange-500 hover:bg-orange-600 text-white font-medium flex items-center gap-2 px-4 py-2 rounded-lg shadow transition-colors">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Export Competitive Report
+            </button>
+          }
         />
       </div>
 
@@ -675,8 +686,15 @@ const CompetitiveAnalysis = () => {
                             </div>
                           </td>
                           <td className="text-right py-4 px-4">
-                            <div className={`font-bold text-lg ${brand.sentimentScore >= 70 ? 'text-green-600' : brand.sentimentScore >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
-                              {brand.sentimentScore}%
+                            <div className="flex items-center justify-end gap-2">
+                              <span className={`font-bold text-lg ${brand.sentimentScore >= 70 ? 'text-green-600' : brand.sentimentScore >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                {brand.sentimentScore}%
+                              </span>
+                              {!isYourBrand && (
+                                <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${brand.sentimentScore - data.mainBrand.sentimentScore >= 0 ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' : 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'}`}>
+                                  {brand.sentimentScore - data.mainBrand.sentimentScore >= 0 ? '+' : ''}{brand.sentimentScore - data.mainBrand.sentimentScore}% vs You
+                                </span>
+                              )}
                             </div>
                             <div className={`w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 mt-1`}>
                               <div
@@ -686,8 +704,15 @@ const CompetitiveAnalysis = () => {
                             </div>
                           </td>
                           <td className="text-right py-4 px-4">
-                            <div className={`font-bold text-lg ${brand.rageIndex <= 30 ? 'text-green-600' : brand.rageIndex <= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
-                              {brand.rageIndex}%
+                            <div className="flex items-center justify-end gap-2">
+                              <span className={`font-bold text-lg ${brand.rageIndex <= 30 ? 'text-green-600' : brand.rageIndex <= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                {brand.rageIndex}%
+                              </span>
+                              {!isYourBrand && (
+                                <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${brand.rageIndex - data.mainBrand.rageIndex <= 0 ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' : 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'}`}>
+                                  {brand.rageIndex - data.mainBrand.rageIndex >= 0 ? '+' : ''}{brand.rageIndex - data.mainBrand.rageIndex}% vs You
+                                </span>
+                              )}
                             </div>
                             <div className={`w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 mt-1`}>
                               <div
@@ -1764,6 +1789,18 @@ const CompetitiveAnalysis = () => {
           )}
         </div>
       </div>
+
+      {showExportModal && (
+        <ReportExport
+          analysisData={data?.mainBrand || { rageIndex: currentBrand?.rageIndex || 28, totalMentions: currentBrand?.totalMentions || 1000, averageSentiment: currentBrand?.averageSentiment || 72 }}
+          brandName={brandName || 'Brand'}
+          appliedFilters={filters}
+          timeRangeLabel={filters?.timeRange || 'Last 7 days'}
+          reportType="competitive"
+          reportContextData={{ mainBrand: data?.mainBrand, competitors: data?.competitors || {} }}
+          onClose={() => setShowExportModal(false)}
+        />
+      )}
     </div>
   );
 };

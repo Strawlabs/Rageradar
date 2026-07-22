@@ -27,7 +27,7 @@ const loadXLSXLibrary = async () => {
   });
 };
 
-const ReportExport = ({ analysisData, brandName, onClose, preSelectedFormat = null, appliedFilters = {}, timeRangeLabel = 'Last 7 days' }) => {
+const ReportExport = ({ analysisData, brandName, onClose, preSelectedFormat = null, appliedFilters = {}, timeRangeLabel = 'Last 7 days', reportType = 'overview', reportContextData = {} }) => {
   const [exportFormat, setExportFormat] = useState(preSelectedFormat || 'PDF');
   const [includeCharts, setIncludeCharts] = useState(true);
   const [includeAspectAnalysis, setIncludeAspectAnalysis] = useState(true);
@@ -607,6 +607,52 @@ const ReportExport = ({ analysisData, brandName, onClose, preSelectedFormat = nu
       recY += 60;
     });
 
+    if (reportType === 'competitive' && reportContextData.competitors) {
+      pdf.addPage();
+      pdf.setFontSize(12);
+      pdf.setTextColor(107, 114, 128);
+      pdf.text(`${brandName} • Competitive Benchmark`, 20, 20);
+      pdf.setFontSize(24);
+      pdf.setTextColor(245, 158, 11);
+      pdf.text('Competitive Metrics Comparison', 20, 45);
+
+      const allBrands = [reportContextData.mainBrand || { name: brandName, sentimentScore: analysisData?.averageSentiment || 72, rageIndex: analysisData?.rageIndex || 28, totalMentions: analysisData?.totalMentions || 1000 }, ...Object.values(reportContextData.competitors)];
+      let compY = 65;
+      allBrands.forEach((b, idx) => {
+        pdf.setFontSize(14);
+        pdf.setTextColor(0, 0, 0);
+        pdf.text(`${idx + 1}. ${b.name} ${idx === 0 ? '(Your Brand)' : ''}`, 20, compY);
+        pdf.setFontSize(11);
+        pdf.setTextColor(107, 114, 128);
+        pdf.text(`Sentiment: ${b.sentimentScore || 70}% | Rage Index: ${b.rageIndex || 30}% | Mentions: ${b.totalMentions || 500}`, 20, compY + 8);
+        drawSentimentBar(20, compY + 13, pageWidth - 40, b.sentimentScore || 70, b.rageIndex || 30, 0);
+        compY += 30;
+      });
+    } else if (reportType === 'events' && reportContextData.events) {
+      pdf.addPage();
+      pdf.setFontSize(12);
+      pdf.setTextColor(107, 114, 128);
+      pdf.text(`${brandName} • Event Impact Tracking`, 20, 20);
+      pdf.setFontSize(24);
+      pdf.setTextColor(245, 158, 11);
+      pdf.text('Tracked Events & Emotional Shifts', 20, 45);
+
+      let evY = 65;
+      reportContextData.events.slice(0, 6).forEach((e, idx) => {
+        pdf.setFontSize(14);
+        pdf.setTextColor(0, 0, 0);
+        pdf.text(`${idx + 1}. ${e.eventName} (${new Date(e.eventDate).toLocaleDateString()})`, 20, evY);
+        pdf.setFontSize(11);
+        pdf.setTextColor(107, 114, 128);
+        const rChange = e.analysis?.changes?.rageIndexChange || 0;
+        pdf.text(`Type: ${e.eventType} | Rage Index: ${e.analysis?.duringEventWindow?.rageIndex || 28}% (${rChange >= 0 ? '+' : ''}${rChange} pts)`, 20, evY + 8);
+        if (e.analysis?.emotionShift?.primary) {
+          pdf.text(`Emotion Shift: ${e.analysis.emotionShift.primary}`, 20, evY + 16);
+        }
+        evY += 32;
+      });
+    }
+
     // Footer with RageRadar orange branding
     pdf.setFillColor(245, 158, 11); // RageRadar orange footer
     pdf.rect(0, pageHeight - 15, pageWidth, 15, 'F');
@@ -616,29 +662,54 @@ const ReportExport = ({ analysisData, brandName, onClose, preSelectedFormat = nu
     pdf.text('rageradar.com', pageWidth - 40, pageHeight - 8);
 
     // Save the PDF
-    pdf.save(`${brandName}_Sentiment_Analysis_${new Date().toISOString().split('T')[0]}.pdf`);
+    pdf.save(`${brandName}_${reportType.toUpperCase()}_Report_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
   const generateCSVExport = () => {
-    const platforms = ['Reddit', 'Twitter', 'Platform X', 'Trustpilot'];
-    const csvData = [
-      ['Platform', 'Mentions', 'Positive %', 'Neutral %', 'Negative %', 'Overall Sentiment'],
-      ...platforms.map(p => [
-        p,
-        Math.round((analysisData?.totalMentions || 1000) * (Math.random() * 0.4 + 0.1)),
-        Math.round(analysisData?.positivePercentage || 70),
-        Math.round(analysisData?.neutralPercentage || 20),
-        Math.round(analysisData?.negativePercentage || 10),
-        Math.round(analysisData?.averageSentiment || 72)
-      ])
-    ];
+    let csvData = [];
+    if (reportType === 'competitive' && reportContextData.competitors) {
+      const allBrands = [reportContextData.mainBrand || { name: brandName, sentimentScore: analysisData?.averageSentiment || 72, rageIndex: analysisData?.rageIndex || 28, totalMentions: analysisData?.totalMentions || 1000 }, ...Object.values(reportContextData.competitors)];
+      csvData = [
+        ['Brand Name', 'Sentiment %', 'Rage Index %', 'Total Mentions', 'Market Share %'],
+        ...allBrands.map((b) => {
+          const totalM = allBrands.reduce((sum, item) => sum + (item.totalMentions || 0), 0) || 1;
+          return [b.name, b.sentimentScore || 70, b.rageIndex || 30, b.totalMentions || 500, ((b.totalMentions / totalM) * 100).toFixed(1)];
+        })
+      ];
+    } else if (reportType === 'events' && reportContextData.events) {
+      csvData = [
+        ['Event Name', 'Event Date', 'Event Type', 'Pre-Event Rage %', 'During-Event Rage %', 'Rage Shift (pts)', 'Emotion Shift'],
+        ...reportContextData.events.map(e => [
+          e.eventName,
+          new Date(e.eventDate).toLocaleDateString(),
+          e.eventType,
+          e.analysis?.preEventWindow?.rageIndex || 25,
+          e.analysis?.duringEventWindow?.rageIndex || 28,
+          e.analysis?.changes?.rageIndexChange || 0,
+          e.analysis?.emotionShift?.primary || 'Stable'
+        ])
+      ];
+    } else {
+      const platforms = ['Reddit', 'Twitter', 'Platform X', 'Trustpilot'];
+      csvData = [
+        ['Platform', 'Mentions', 'Positive %', 'Neutral %', 'Negative %', 'Overall Sentiment'],
+        ...platforms.map(p => [
+          p,
+          Math.round((analysisData?.totalMentions || 1000) * (Math.random() * 0.4 + 0.1)),
+          Math.round(analysisData?.positivePercentage || 70),
+          Math.round(analysisData?.neutralPercentage || 20),
+          Math.round(analysisData?.negativePercentage || 10),
+          Math.round(analysisData?.averageSentiment || 72)
+        ])
+      ];
+    }
 
-    const csvContent = csvData.map(row => row.join(',')).join('\n');
+    const csvContent = csvData.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${brandName}_sentiment_data_${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `${brandName}_${reportType}_data_${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
   };
@@ -1040,8 +1111,8 @@ Perfect for developers, data scientists, and system integrations!`);
 
   const generatePowerPointExport = async () => {
     try {
-      console.log('Starting PowerPoint export for:', brandName);
-      await generatePowerPointFile(brandName, analysisData, timeRangeLabel);
+      console.log('Starting PowerPoint export for:', brandName, 'Report Type:', reportType);
+      await generatePowerPointFile(brandName, analysisData, timeRangeLabel, reportType, reportContextData);
       console.log('✅ PowerPoint export completed successfully!');
     } catch (error) {
       console.error('PowerPoint generation failed:', error);
@@ -1066,9 +1137,15 @@ Perfect for developers, data scientists, and system integrations!`);
             <p className="text-gray-600 dark:text-gray-400">
               {preSelectedFormat ? `Generate professional ${exportFormat.toLowerCase()} report with insights and visualizations` : 'Save 70% of Your Time on Reporting'}
             </p>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-xs px-2 py-0.5 rounded font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">
+                Report Focus: {reportType === 'overview' ? 'Executive Overview' : reportType === 'sentiment' ? 'Detailed Sentiment Analysis' : reportType === 'trends' ? 'Rage Trends & Volatility' : reportType === 'competitive' ? 'Competitive Intelligence Benchmark' : reportType === 'events' ? 'Event-Driven Sentiment Tracking' : reportType}
+              </span>
+            </div>
           </div>
           <button
             onClick={onClose}
+            aria-label="Close modal"
             className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
           >
             <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">

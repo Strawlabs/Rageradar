@@ -23,6 +23,7 @@ import ColorfulWidget from './shared/ColorfulWidget';
 import PageHeader from './shared/PageHeader';
 import EmptyState from './shared/EmptyState';
 import { capitalizeBrandName } from '../utils/brandUtils';
+import ReportExport from './ReportExport';
 
 ChartJS.register(
   CategoryScale,
@@ -43,6 +44,7 @@ const ReportsAnalysis = () => {
   const { currentBrand, analyzedBrands } = useBrand();
   const { filters } = useFilters();
   const navigate = useNavigate();
+  const [showExportModal, setShowExportModal] = useState(false);
 
   // Helper function to ensure proper brand name capitalization
   const formatBrandName = (name) => {
@@ -737,6 +739,14 @@ const ReportsAnalysis = () => {
             </svg>
           }
           iconBg="from-blue-500 to-indigo-500"
+          action={
+            <button onClick={() => setShowExportModal(true)} className="bg-orange-500 hover:bg-orange-600 text-white font-medium flex items-center gap-2 px-4 py-2 rounded-lg shadow transition-colors">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Export Sentiment Report
+            </button>
+          }
         />
 
         {/* Filter Bar */}
@@ -1115,6 +1125,17 @@ const ReportsAnalysis = () => {
           )}
         </div>
       </div>
+
+      {showExportModal && (
+        <ReportExport
+          analysisData={data}
+          brandName={currentBrand?.brandName || 'Brand'}
+          appliedFilters={filters}
+          timeRangeLabel={filters?.timeRange || 'Last 7 days'}
+          reportType="sentiment"
+          onClose={() => setShowExportModal(false)}
+        />
+      )}
     </div>
   );
 };
