@@ -155,9 +155,44 @@ export function AuthProvider({ children }) {
     }
   }
 
+  // resetPassword function
+  async function resetPassword(email) {
+    console.log('🔧 AuthContext: Resetting password for...', email);
+    const redirectTo = typeof window !== 'undefined' 
+      ? `${window.location.origin}/reset-password`
+      : 'http://localhost:3000/reset-password';
+      
+    const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo
+    });
+    if (error) throw error;
+    return data;
+  }
+
+  // updatePassword function
+  async function updatePassword(newPassword) {
+    console.log('🔧 AuthContext: Updating password...');
+    const { data, error } = await supabase.auth.updateUser({
+      password: newPassword
+    });
+    if (error) throw error;
+    return data;
+  }
+
+  // refreshSession function
+  async function refreshSession() {
+    console.log('🔧 AuthContext: Refreshing session...');
+    const { data, error } = await supabase.auth.refreshSession();
+    if (error) throw error;
+    if (data?.user) {
+      await getUserPlan(data.user.id);
+    }
+    return data;
+  }
+
   function isTrialExpired(user) {
     if (!user || user.plan !== 'trial') return false;
-    if (user.role === 'admin') return false;
+    if (user.role === 'admin' || user.role === 'super_admin') return false;
 
     try {
       const trialEndDate = new Date(user.trialEndsAt);
@@ -170,17 +205,29 @@ export function AuthProvider({ children }) {
 
   function canCreateBrand(user) {
     if (!user) return false;
-    if (user.role === 'admin') return true;
+    if (user.role === 'admin' || user.role === 'super_admin') return true;
     if (isTrialExpired(user)) return false;
     return user.brandsUsed < user.maxBrands;
   }
 
   function isAdmin(user) {
-    return user && user.role === 'admin';
+    const checkUser = user || userPlan;
+    return checkUser && (checkUser.role === 'admin' || checkUser.role === 'super_admin');
+  }
+
+  function hasRole(...roles) {
+    const currentRole = userPlan?.role || 'user';
+    return roles.includes(currentRole);
+  }
+
+  function isPremiumUser() {
+    if (isAdmin()) return true;
+    const plan = userPlan?.plan;
+    return plan === 'pro' || plan === 'enterprise';
   }
 
   async function refreshUserPlan() {
-    const user = currentUser || (await supabase.auth.getUser()).data.user;
+    const user = currentUser || (await supabase.auth.getUser()).data?.user;
     if (user) {
       console.log('AuthContext: Refreshing user plan for:', user.id);
       await getUserPlan(user.id);
@@ -224,14 +271,20 @@ export function AuthProvider({ children }) {
   const value = {
     currentUser,
     userPlan,
+    loading,
     signup,
     login,
     logout,
+    resetPassword,
+    updatePassword,
+    refreshSession,
     getUserPlan,
     refreshUserPlan,
     isTrialExpired,
     canCreateBrand,
     isAdmin,
+    hasRole,
+    isPremiumUser,
     isMockMode
   };
 

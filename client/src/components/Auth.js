@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 
 const Auth = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [searchParams] = useSearchParams();
+  const isExpired = searchParams.get('expired') === 'true';
 
   const { login, currentUser, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -25,9 +27,19 @@ const Auth = () => {
       setError('');
       setLoading(true);
       await login(email, password);
-    } catch (error) {
-      setError('Failed to log in');
-      console.error(error);
+    } catch (err) {
+      console.error(err);
+      let msg = 'Failed to log in';
+      if (err.message && (err.message.includes('Invalid login credentials') || err.message.includes('invalid_credentials'))) {
+        msg = 'Invalid email or password';
+      } else if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+        msg = 'Invalid email or password';
+      } else if (err.message && err.message.includes('Email not confirmed')) {
+        msg = 'Please confirm your email address before logging in';
+      } else if (err.message) {
+        msg = err.message;
+      }
+      setError(msg);
       setLoading(false);
     }
   }
@@ -56,6 +68,15 @@ const Auth = () => {
 
         {/* Login Form */}
         <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl border border-gray-200 p-8">
+          {isExpired && !error && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-xl text-sm mb-6 flex items-center gap-2">
+              <svg className="w-5 h-5 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span>Your session has expired. Please sign in again.</span>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-6">
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
@@ -82,9 +103,17 @@ const Auth = () => {
               </div>
 
               <div>
-                <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                  Password
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                    Password
+                  </label>
+                  <Link
+                    to="/forgot-password"
+                    className="text-xs font-medium text-orange-600 hover:text-orange-700 transition-colors duration-200"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
                 <input
                   id="password"
                   name="password"
