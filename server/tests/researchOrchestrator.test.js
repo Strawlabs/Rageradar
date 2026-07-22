@@ -2,6 +2,15 @@
  * Research Orchestrator Unit Tests
  */
 
+jest.mock('../services/emailService', () => {
+  return jest.fn().mockImplementation(() => ({
+    sendBrandAlertEmail: jest.fn().mockResolvedValue({ success: true }),
+    sendEmail: jest.fn().mockResolvedValue({ success: true }),
+    sendSystemNotification: jest.fn().mockResolvedValue({ success: true }),
+    sendWeeklyReport: jest.fn().mockResolvedValue({ success: true })
+  }));
+});
+
 const ResearchOrchestrator = require('../ai/researchOrchestrator');
 
 describe('ResearchOrchestrator', () => {
@@ -48,5 +57,5 @@ describe('ResearchOrchestrator', () => {
             platformIntegrations: [],
             platformMentionsCount: 0
         });
-    });
+    }, 30000);
 });

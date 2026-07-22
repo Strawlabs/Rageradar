@@ -9,6 +9,7 @@ import FilterBar from './shared/FilterBar';
 import ColorfulWidget from './shared/ColorfulWidget';
 import PageHeader from './shared/PageHeader';
 import EmptyState from './shared/EmptyState';
+import ReportExport from './ReportExport';
 import axios from 'axios';
 import TrendlineChart from './TrendlineChart';
 import { Line, Bar } from 'react-chartjs-2';
@@ -38,7 +39,6 @@ ChartJS.register(
   TimeScale
 );
 
-import ReportExport from './ReportExport';
 
 const ReportsTrends = () => {
   const [searchParams] = useSearchParams();

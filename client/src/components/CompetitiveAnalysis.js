@@ -10,6 +10,7 @@ import PageHeader from './shared/PageHeader';
 import BrandLogo from './shared/BrandLogo';
 import { capitalizeBrandName } from '../utils/brandUtils';
 import EmptyState from './shared/EmptyState';
+import ReportExport from './ReportExport';
 import { Line, Scatter, Radar, Bar, Doughnut } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -63,7 +64,6 @@ const COMPETITOR_COLORS = [
   '#06B6D4', // Cyan
 ];
 
-import ReportExport from './ReportExport';
 
 const CompetitiveAnalysis = () => {
   const [searchParams] = useSearchParams();

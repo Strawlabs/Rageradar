@@ -2614,7 +2614,6 @@ const EnhancedAIInsightsEngine = () => {
               </div>
             </div>
           )}
-        </div>
 
           {/* Ask RageRadar Tab */}
           {activeTab === 'ask' && (

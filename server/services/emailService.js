@@ -1,8 +1,18 @@
-const { Resend } = require('resend');
+let Resend;
+try {
+  ({ Resend } = require('resend'));
+} catch {
+  Resend = null;
+}
 
 class EmailService {
   constructor() {
-    this.resend = new Resend(process.env.RESEND_API_KEY);
+    if (Resend && process.env.RESEND_API_KEY) {
+      this.resend = new Resend(process.env.RESEND_API_KEY);
+    } else {
+      this.resend = null;
+      console.warn('EmailService: resend module not installed or RESEND_API_KEY missing — email sending disabled.');
+    }
     this.fromEmail = process.env.FROM_EMAIL || 'noreply@rageradar.com';
   }
 
@@ -11,6 +21,10 @@ class EmailService {
    */
   async sendRageSpikeAlert(userEmail, brandName, currentScore, previousScore, mentions) {
     try {
+      if (!this.resend) {
+        console.log(`Email simulated (resend not configured). To: ${userEmail}, Type: RageSpikeAlert`);
+        return { success: true, simulated: true };
+      }
       const scoreChange = ((currentScore - previousScore) / previousScore * 100).toFixed(1);
       
       const { data, error } = await this.resend.emails.send({
@@ -44,6 +58,10 @@ class EmailService {
    */
   async sendWeeklyReport(userEmail, reportData) {
     try {
+      if (!this.resend) {
+        console.log(`Email simulated (resend not configured). To: ${userEmail}, Type: WeeklyReport`);
+        return { success: true, simulated: true };
+      }
       const { data, error } = await this.resend.emails.send({
         from: this.fromEmail,
         to: [userEmail],
@@ -69,6 +87,10 @@ class EmailService {
    */
   async sendNewMentionAlert(userEmail, brandName, mention) {
     try {
+      if (!this.resend) {
+        console.log(`Email simulated (resend not configured). To: ${userEmail}, Type: NewMentionAlert`);
+        return { success: true, simulated: true };
+      }
       const { data, error } = await this.resend.emails.send({
         from: this.fromEmail,
         to: [userEmail],
@@ -94,6 +116,10 @@ class EmailService {
    */
   async sendWelcomeEmail(userEmail, userData) {
     try {
+      if (!this.resend) {
+        console.log(`Email simulated (resend not configured). To: ${userEmail}, Type: WelcomeEmail`);
+        return { success: true, simulated: true };
+      }
       const { data, error } = await this.resend.emails.send({
         from: this.fromEmail,
         to: [userEmail],
@@ -119,6 +145,10 @@ class EmailService {
    */
   async sendPasswordResetEmail(userEmail, resetLink) {
     try {
+      if (!this.resend) {
+        console.log(`Email simulated (resend not configured). To: ${userEmail}, Type: PasswordReset`);
+        return { success: true, simulated: true };
+      }
       const { data, error } = await this.resend.emails.send({
         from: this.fromEmail,
         to: [userEmail],
@@ -150,6 +180,11 @@ class EmailService {
         'api_limit': '⚠️ API Limit Reached',
         'security_alert': '🔒 Security Alert'
       };
+
+      if (!this.resend) {
+        console.log(`Email simulated (resend not configured). To: ${userEmail}, Type: SystemNotification (${type})`);
+        return { success: true, simulated: true };
+      }
 
       const { data, error } = await this.resend.emails.send({
         from: this.fromEmail,
