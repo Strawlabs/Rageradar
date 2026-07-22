@@ -17,10 +17,20 @@ RageRadar is a microSaaS application that analyzes public emotional sentiment ab
 
 - **Frontend**: React 18 + TailwindCSS + Chart.js
 - **Backend**: Node.js + Express
-- **Auth**: Firebase Authentication + Firestore
+- **Auth**: Supabase Authentication + PostgreSQL (`public.users` table with RLS)
+- **Database**: Supabase PostgreSQL + RLS
 - **Crawling**: Google Custom Search API
 - **AI**: Hugging Face Transformers (emotion-english-distilroberta-base)
-- **Database**: Firebase Firestore
+
+## Role-Based Access Control (RBAC) & Subscription Access
+
+RageRadar uses a 4-role hierarchy enforced by authoritative database lookups (`public.users` table):
+1. **`super_admin`**: Full system access, including billing configuration, role assignments, and all administrative tools.
+2. **`admin`**: System management, including user status management, content/blog management, and reports.
+3. **`enterprise_user`**: Advanced feature access, including unlimited brand sentiment tracking, custom API exports, and multi-team workspace access.
+4. **`user`** (`Standard User`): Base access to sentiment analysis, dashboards, and standard reporting.
+
+In addition to roles, feature access is governed by subscription plans (`trial`, `starter`, `pro`, `enterprise`) enforced by the `requirePlan` server middleware and `PrivateRoute` route guards.
 
 ## Quick Start
 
@@ -39,18 +49,17 @@ npm run install-all
 npm run dev
 ```
 
-This will start both the React client (port 3000) and Node.js server (port 5000) concurrently.
+This will start both the React client (port 3000) and Node.js server (port 5001) concurrently.
 
 ## Environment Setup
 
 ### Required API Keys
 
-1. **Firebase Project**:
-   - Create a Firebase project at https://console.firebase.google.com
+1. **Supabase Project**:
+   - Create a Supabase project at https://supabase.com
    - Enable Authentication (Email/Password)
-   - Enable Firestore Database
-   - Generate service account key for server
-   - Get web app config for client
+   - Ensure the `public.users` table has RLS policies configured with roles (`super_admin`, `admin`, `enterprise_user`, `user`) and subscription plans
+   - Get your Project URL and Anon/Service Role Keys from Project Settings -> API
 
 2. **Google Custom Search API**:
    - Create a Custom Search Engine at https://cse.google.com
@@ -63,12 +72,9 @@ This will start both the React client (port 3000) and Node.js server (port 5000)
 
 ### Client Environment (.env)
 ```
-REACT_APP_FIREBASE_API_KEY=your_firebase_api_key
-REACT_APP_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
-REACT_APP_FIREBASE_PROJECT_ID=your_project_id
-REACT_APP_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
-REACT_APP_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
-REACT_APP_FIREBASE_APP_ID=your_app_id
+REACT_APP_SUPABASE_URL=your_supabase_url
+REACT_APP_SUPABASE_ANON_KEY=your_supabase_anon_key
+REACT_APP_API_URL=http://localhost:5001
 ```
 
 ### Server Environment (.env)
