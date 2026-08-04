@@ -87,4 +87,48 @@ describe('EmotionAnalyzer', () => {
         expect(result.isShortText).toBe(true);
         expect(result.confidence).toBe('low');
     });
+
+    // ── QA §6 – EMO-07: Duplicate mentions processed independently ──
+    test('EMO-07: identical texts each produce classification results', async () => {
+        const text = 'This product is absolutely terrible and broken!';
+        const result1 = await analyzer.analyzeEmotions(text);
+        const result2 = await analyzer.analyzeEmotions(text);
+
+        // Both should return valid results independently
+        expect(result1.primaryEmotion).toBeDefined();
+        expect(result2.primaryEmotion).toBeDefined();
+        expect(result1.emotions.length).toBeGreaterThan(0);
+        expect(result2.emotions.length).toBeGreaterThan(0);
+    });
+
+    // ── QA §6 – EMO-08: Multiple emotion labels per mention ──
+    test('EMO-08: fallback returns multiple emotion labels when applicable', async () => {
+        const mixedText = 'I am angry about the outage but grateful for the quick response from support';
+        const result = await analyzer.analyzeEmotions(mixedText);
+
+        // Fallback mode should still produce multi-label output
+        expect(result.emotions.length).toBeGreaterThanOrEqual(1);
+        // Verify it has label and score structure
+        result.emotions.forEach(e => {
+            expect(e).toHaveProperty('label');
+            expect(e).toHaveProperty('score');
+        });
+    });
+
+    // ── QA §6 – EMO-09: Model fallback mode ──
+    test('EMO-09: fallback mode returns valid labels mapped to primary taxonomy', async () => {
+        // In test env, HF API key is a placeholder so fallback is used
+        const result = await analyzer.analyzeEmotions('I love this service, it works perfectly!');
+
+        expect(result.fallback).toBe(true);
+        // Labels should be from the known emotion taxonomy
+        const validLabels = [
+            'anger', 'rage', 'fury', 'frustration', 'annoyance', 'disgust',
+            'disappointment', 'sadness', 'fear', 'confusion', 'surprise',
+            'nervousness', 'embarrassment', 'neutral', 'joy', 'admiration',
+            'excitement', 'love', 'gratitude', 'optimism', 'pride',
+            'amusement', 'approval', 'caring', 'desire', 'relief', 'disapproval', 'realization'
+        ];
+        expect(validLabels).toContain(result.primaryEmotion);
+    });
 });

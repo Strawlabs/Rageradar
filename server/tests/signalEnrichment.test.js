@@ -278,3 +278,34 @@ describe('SignalEnrichmentEngine Pipeline (End-to-End)', () => {
     });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// QA §5 – SIG-06: Empty/whitespace-only content
+// ─────────────────────────────────────────────────────────────────────────────
+describe('SIG-06: Empty/whitespace-only content (edge)', () => {
+    test('ContentNormalizer handles empty string without error', () => {
+        const normalizer = new ContentNormalizer();
+        const result = normalizer.normalize('');
+        expect(result).toBeDefined();
+        expect(result.content).toBeDefined();
+    });
+
+    test('ContentNormalizer handles whitespace-only content', () => {
+        const normalizer = new ContentNormalizer();
+        const result = normalizer.normalize('   \n\t  ');
+        expect(result).toBeDefined();
+        expect(result.content.trim()).toBe('');
+    });
+
+    test('SignalEnrichmentEngine handles blank mentions without pipeline crash', () => {
+        const engine = new SignalEnrichmentEngine();
+        const rawMentions = [
+            { id: 'blank_1', platform: 'web', url: 'https://example.com', text: '' },
+            { id: 'blank_2', platform: 'reddit', url: 'https://reddit.com/r/test', text: '   ' }
+        ];
+
+        // Should not throw
+        expect(() => {
+            engine.enrich(rawMentions, { name: 'TestBrand', website: 'test.com' });
+        }).not.toThrow();
+    });
+});

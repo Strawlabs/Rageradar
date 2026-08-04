@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 
 // Basic components first
 import Loading from './components/Loading';
@@ -290,6 +290,13 @@ function App() {
                     </EnhancedLayout>
                   </PrivateRoute>
                 } />
+
+                {/* Convenience Redirects */}
+                <Route path="/realtime" element={<Navigate to="/dashboard/real-time" replace />} />
+                <Route path="/alerts" element={<Navigate to="/dashboard/alerts" replace />} />
+                <Route path="/mentions" element={<Navigate to="/dashboard/reports/mentions" replace />} />
+                <Route path="/reports" element={<Navigate to="/dashboard/reports/overview" replace />} />
+                <Route path="/settings" element={<Navigate to="/dashboard/settings" replace />} />
                 
                 <Route path="*" element={<NotFound />} />
               </Routes>

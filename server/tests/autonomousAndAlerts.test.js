@@ -269,3 +269,120 @@ describe('ChatEngine - answerQuestion with evidence', () => {
     expect(Array.isArray(result.suggestedQuestions)).toBe(true);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// QA §13 – Alerts Extensions
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('ALT-04: Duplicate alert suppression in short window', () => {
+  let manager;
+
+  beforeEach(() => {
+    manager = new NotificationManager();
+    manager.recentAlertsCache.clear();
+  });
+
+  test('first alert passes, immediate duplicate is suppressed', async () => {
+    const first = await manager.isDuplicateAlert('user_1', 'brand_dup', 'critical_rage', 60);
+    expect(first).toBe(false);
+
+    const second = await manager.isDuplicateAlert('user_1', 'brand_dup', 'critical_rage', 60);
+    expect(second).toBe(true);
+  });
+
+  test('different alert types are not suppressed', async () => {
+    await manager.isDuplicateAlert('user_1', 'brand_x', 'critical_rage', 60);
+    const result = await manager.isDuplicateAlert('user_1', 'brand_x', 'spike_detected', 60);
+    expect(result).toBe(false);
+  });
+});
+
+describe('ALT-05: Ask RageRadar — valid question', () => {
+  let chatEngine;
+
+  beforeEach(() => {
+    chatEngine = new ChatEngine();
+    const { supabase } = require('../supabase');
+    supabase.from.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      order: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockResolvedValue({
+        data: [{
+          brand_name: 'TestBrand',
+          rage_index: 72,
+          search_results: [
+            { content: 'Checkout fails', platform: 'reddit', url: 'https://reddit.com/1', sentiment: 'negative', rageIndex: 80 }
+          ],
+          platform_breakdown: {},
+          themes: [],
+          insights: {},
+          trendline_summary: null
+        }],
+        error: null
+      })
+    });
+  });
+
+  test('answers a brand-relevant question with evidence', async () => {
+    const result = await chatEngine.answerQuestion('brand_1', 'What are the top complaints?', []);
+
+    expect(result.answer).toBeDefined();
+    expect(result.answer.length).toBeGreaterThan(0);
+    expect(Array.isArray(result.evidence)).toBe(true);
+  });
+});
+
+describe('ALT-06: Ask RageRadar — out-of-scope', () => {
+  let chatEngine;
+
+  beforeEach(() => {
+    chatEngine = new ChatEngine();
+    const { supabase } = require('../supabase');
+    supabase.from.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      order: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockResolvedValue({
+        data: [{
+          brand_name: 'TestBrand',
+          rage_index: 72,
+          search_results: [],
+          platform_breakdown: {},
+          themes: [],
+          insights: {},
+          trendline_summary: null
+        }],
+        error: null
+      })
+    });
+  });
+
+  test('returns a response even with no relevant data', async () => {
+    const result = await chatEngine.answerQuestion('brand_1', 'What is the weather today?', []);
+
+    // Should still return a structured response, not crash
+    expect(result).toHaveProperty('answer');
+    expect(typeof result.answer).toBe('string');
+  });
+});
+
+describe('ALT-07: Feature flag disabled state', () => {
+  test('NotificationManager can be instantiated without crashing', () => {
+    // Simulates a "disabled" state — no Slack webhook, no email configured
+    const manager = new NotificationManager();
+    expect(manager).toBeDefined();
+  });
+
+  test('sendSlackNotification returns error when webhook is not configured', async () => {
+    const manager = new NotificationManager();
+    const result = await manager.sendSlackNotification({
+      brandName: 'TestBrand',
+      rageIndex: 85,
+      severity: 'critical'
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+  });
+});
